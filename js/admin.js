@@ -6,8 +6,11 @@ import {
   armarCruces, resolverCruces, hayPlayoff, primeraFaseTerminada, ganadorPartido, NOMBRE_DESEMPATE, NOMBRE_RONDA,
   nombreCruce, tieneResultado, CONFIG_DEFECTO,
 } from './calculos.js';
-import { armarFixture, armarPlayoff, moverFecha, puedeRegenerarFixture, itemsDeFecha } from './fixture.js';
+import {
+  armarFixture, armarPlayoff, moverFecha, puedeRegenerarFixture, itemsDeFecha, estadoSorteo, plantillaFixture, diasDeJuego,
+} from './fixture.js';
 import { esc, plural, fechaLarga, fechaCorta, hora, esFeriadoEspecial, normalizarNombre, ordinal } from './util.js';
+import { protegerSalida } from './salida.js';
 import { ICONO, escudo, mapaEquipos, nombreLado, aviso, dialogo, confirmar, hayPenales } from './ui.js';
 import {
   placaPartido, placaFecha, placaTabla, placaGoleadores, placaProxima, placaPlayoff, archivoDePlaca, compartirArchivo, TIPOS_PLACA,
@@ -431,17 +434,7 @@ function vistaFixture() {
   const hayTodos = D().fechas.some((f) => f.fase === 'todos');
   const activos = D().equipos.filter((e) => e.activo !== false);
   const c = cfg(D());
-  if (!hayTodos) {
-    const n = activos.length;
-    const fechas = n < 2 ? 0 : n % 2 ? n : n - 1;
-    return `<section class="tarjeta pad">
-      <span style="font-weight:700">Armar el fixture</span>
-      <p style="margin:0">Se arma solo: todos contra todos, a una rueda. Los partidos caen los días de juego desde el ${esc(fechaLarga(c.fecha_inicio).toLowerCase())}, el primero a las ${esc(hora(c.hora_primer_partido))} y uno cada ${c.minutos_entre_partidos} minutos.</p>
-      ${n >= 2 ? `<p class="ayuda">Con ${plural(n, 'equipo', 'equipos')} quedan ${plural(fechas, 'fecha', 'fechas')}${n % 2 ? ' (en cada fecha un equipo queda libre)' : ''}.</p>` : '<div class="alerta">Primero cargá al menos 2 equipos.</div>'}
-      <button class="btn grande primario" data-accion="armar-fixture" ${n < 2 ? 'disabled' : ''}>Armar fixture</button>
-      <p class="ayuda">Los días y horarios se cambian en Formato.</p>
-    </section>`;
-  }
+  if (!hayTodos) return vistaSorteo(activos, c);
   const f = fechaFixture();
   const eqs = mapaEquipos(D());
   const items = itemsDeFecha(D(), f);
@@ -496,6 +489,96 @@ function vistaFixture() {
       <p class="ayuda" style="text-align:center">Se puede mientras no haya ningún resultado cargado.</p>` : ''}`;
 }
 
+/** Antes de armar el fixture: cada número del sorteo con su equipo, y cómo queda cada fecha. */
+function vistaSorteo(activos, c) {
+  const n = activos.length;
+  if (n < 2) {
+    return `<section class="tarjeta pad"><span style="font-weight:700">Sorteo y fixture</span>
+      <div class="alerta">Primero cargá al menos 2 equipos.</div>
+      <button class="btn primario" data-vista="equipos">Ir a Equipos</button></section>`;
+  }
+  const s = estadoSorteo(D());
+  const plantilla = plantillaFixture(n);
+  const dias = diasDeJuego(c.fecha_inicio, c.dias_juego, plantilla.length);
+  const ordenados = activos.slice().sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const etiqueta = (k) => {
+    const e = s.porNumero.get(k);
+    return e ? `<b>${k}</b> ${esc(e.nombre)}` : `<b>${k}</b>`;
+  };
+  const faltan = n - s.porNumero.size;
+
+  const numeros = Array.from({ length: n }, (_, i) => i + 1).map((k) => {
+    const actual = s.porNumero.get(k);
+    return `<label class="fila" style="gap:10px">
+      <span class="pos playoff" style="width:34px;height:34px;font-size:15px;flex:0 0 auto">${k}</span>
+      <span class="sr">Equipo con el número ${k}</span>
+      <select class="entrada" data-sorteo="${k}" style="flex:1;min-width:0">
+        <option value="">Elegir equipo…</option>
+        ${ordenados.map((e) => {
+          const otro = s.porNumero.get(Number(e.numero_sorteo)) === e && Number(e.numero_sorteo) !== k ? ` (tiene el ${e.numero_sorteo})` : '';
+          return `<option value="${e.id}" ${actual === e ? 'selected' : ''}>${esc(e.nombre)}${otro}</option>`;
+        }).join('')}
+      </select>
+    </label>`;
+  }).join('');
+
+  const fechas = plantilla.map((r, i) => {
+    const aviso = esFeriadoEspecial(dias[i]);
+    return `<div style="border-top:1px solid var(--borde);padding:10px 12px;display:flex;flex-direction:column;gap:4px">
+      <span style="font-weight:700">Fecha ${i + 1} · <span style="font-weight:500;color:var(--sec)">${esc(fechaLarga(dias[i]))}</span></span>
+      ${r.partidos.map((p) => `<span style="font-size:13px">${etiqueta(p.local)} <span style="color:var(--sec)">vs</span> ${etiqueta(p.visitante)}</span>`).join('')}
+      ${r.libre ? `<span class="ayuda">Libre: ${etiqueta(r.libre)}</span>` : ''}
+      ${aviso ? `<span class="ayuda" style="color:var(--reprog)">${esc(aviso)}</span>` : ''}
+    </div>`;
+  }).join('');
+
+  return `
+    <section class="tarjeta pad" style="gap:8px">
+      <span style="font-weight:700">Sorteo</span>
+      <p class="ayuda" style="font-size:13px">Cada equipo saca un número. El día del sorteo, elegí qué equipo sacó cada número y el fixture se arma según el cuadro de abajo.</p>
+    </section>
+    <section class="tarjeta">${numeros}</section>
+    ${s.porNumero.size ? '<button class="btn" data-accion="limpiar-sorteo">Borrar los números</button>' : ''}
+
+    <section class="tarjeta">
+      <div class="tarjeta-cab" style="font-size:13px">Así se arma el fixture</div>
+      <p class="ayuda" style="padding:8px 12px 0">Todos contra todos una sola vez${n % 2 ? ', y cada uno queda libre una sola fecha' : ''}. ${plural(plantilla.length, 'fecha', 'fechas')} de ${plural(plantilla[0].partidos.length, 'partido', 'partidos')}.</p>
+      ${fechas}
+    </section>
+
+    <section class="tarjeta pad">
+      ${s.completo
+        ? '<p class="ayuda">Están todos los números asignados.</p>'
+        : `<div class="alerta">${faltan === 1 ? 'Falta asignar 1 número' : `Faltan asignar ${faltan} números`}.</div>`}
+      <button class="btn grande primario" data-accion="armar-fixture" ${s.completo ? '' : 'disabled'}>Armar fixture</button>
+      <p class="ayuda">Los partidos caen ${esc(textoDiasJuego(c))} desde el ${esc(fechaLarga(c.fecha_inicio).toLowerCase())}, el primero a las ${esc(hora(c.hora_primer_partido))} y uno cada ${c.minutos_entre_partidos} minutos. Se cambia en Formato.</p>
+    </section>`;
+}
+
+function textoDiasJuego(c) {
+  const nombres = ['domingos', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados'];
+  const d = (c.dias_juego || []).map((x) => nombres[x]);
+  return d.length > 1 ? `${d.slice(0, -1).join(', ')} y ${d[d.length - 1]}` : d[0] || '';
+}
+
+/** Asigna el número k al equipo (o lo deja vacío). Libera el número primero porque no puede repetirse. */
+async function asignarNumero(k, equipoId) {
+  const s = estadoSorteo(D());
+  const anterior = s.porNumero.get(k);
+  if (anterior && anterior.id === equipoId) return;
+  const cambios = [];
+  if (anterior) cambios.push([anterior.id, null]);
+  if (equipoId) cambios.push([equipoId, k]);
+  for (const [id, num] of cambios) {
+    const e = D().equipos.find((x) => x.id === id);
+    if (e) e.numero_sorteo = num;
+  }
+  render();
+  await guardar(async () => {
+    for (const [id, num] of cambios) await db.actualizar('equipos', id, { numero_sorteo: num });
+  });
+}
+
 async function crearFechas(fechas) {
   const filas = await db.insertar('fechas', fechas.map(({ numero, fase, nombre, dia_previsto }) => ({ numero, fase, nombre, dia_previsto })));
   const porNumero = new Map(filas.map((f) => [Number(f.numero), f.id]));
@@ -508,8 +591,11 @@ async function armarElFixture({ rehacer = false } = {}) {
     aviso('Ya hay resultados cargados: el fixture no se puede rehacer.', 'error', 4500);
     return;
   }
-  const { fechas, avisos } = armarFixture(D());
-  if (!fechas.length) return;
+  const { fechas, avisos, faltan } = armarFixture(D());
+  if (!fechas.length) {
+    if (faltan) aviso(faltan === 1 ? 'Falta asignar 1 número del sorteo.' : `Faltan asignar ${faltan} números del sorteo.`, 'error');
+    return;
+  }
   if (rehacer) {
     const ok = await confirmar('Se borra el fixture actual (partidos, días y actividades) y se arma uno nuevo. ¿Seguimos?', { si: 'Rehacer', peligro: true });
     if (!ok) return;
@@ -571,6 +657,7 @@ function vistaEquipos() {
         return `<button class="fila fila-btn" data-accion="abrir-equipo" data-id="${e.id}">
           ${escudo(e, 32)}
           <span class="txt" style="font-weight:600">${esc(e.nombre)}</span>
+          ${e.numero_sorteo ? `<span class="chip">Nº ${e.numero_sorteo}</span>` : ''}
           ${e.activo === false ? '<span class="chip susp">Inactivo</span>' : ''}
           <span class="ayuda">${n ? plural(n, 'jugador', 'jugadores') : 'Sin plantel'}</span>
         </button>`;
@@ -935,6 +1022,14 @@ const acciones = {
   'abrir-item': (b) => { estado.abierto = estado.abierto === b.dataset.id ? null : b.dataset.id; render(); },
   'cerrar-item': () => { estado.abierto = null; render(); },
   'agregar-actividad': () => agregarActividad(),
+  'limpiar-sorteo': async () => {
+    const ok = await confirmar('¿Borrar los números del sorteo de todos los equipos?', { si: 'Borrar', peligro: true });
+    if (!ok) return;
+    const con = D().equipos.filter((e) => e.numero_sorteo !== null && e.numero_sorteo !== undefined);
+    con.forEach((e) => { e.numero_sorteo = null; });
+    render();
+    await guardar(async () => { for (const e of con) await db.actualizar('equipos', e.id, { numero_sorteo: null }); });
+  },
   'quitar-actividad': async (b) => {
     const ok = await confirmar('¿Quitar esta actividad de la fecha?', { si: 'Quitar', peligro: true });
     if (ok) { estado.abierto = null; await guardar(() => db.borrar('actividades', [b.dataset.id])); }
@@ -1054,6 +1149,10 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', async (e) => {
   const t = e.target;
   if (t.matches('[data-gol="enContra"]')) { guardarFormGol(); render(); return; }
+  if (t.matches('[data-sorteo]')) {
+    await asignarNumero(Number(t.dataset.sorteo), t.value || null);
+    return;
+  }
   if (t.matches('[data-campo^="penales_"]')) {
     const v = t.value === '' ? null : Math.max(0, parseInt(t.value, 10) || 0);
     optimista('partidos', partidoActual().id, { [t.dataset.campo]: v });
@@ -1147,6 +1246,13 @@ async function entrar() {
   }
   esqueleto();
   document.getElementById('contenido').innerHTML = '<div class="cargando">Cargando…</div>';
+  protegerSalida(() => {
+    if (estado.partido) { estado.partido = null; render(); return true; }
+    if (estado.equipo) { estado.equipo = null; render(); return true; }
+    if (estado.abierto) { estado.abierto = null; render(); return true; }
+    if (estado.vista !== 'resultados') { estado.vista = 'resultados'; render(); scrollTo(0, 0); return true; }
+    return false;
+  });
   almacen = await iniciarDatos({
     alCambiar() { if (almacen) renderSiSePuede(); },
     alEstado(e) {

@@ -7,7 +7,7 @@ const CLAVE = 'nocturno-demo-v1';
 const TABLAS = ['equipos', 'jugadores', 'fechas', 'partidos', 'goles', 'actividades'];
 
 const DEFECTOS = {
-  equipos: { color: '#0b2d5b', escudo_url: null, activo: true },
+  equipos: { color: '#0b2d5b', escudo_url: null, activo: true, numero_sorteo: null },
   jugadores: { activo: true },
   fechas: { nombre: null },
   partidos: {
@@ -24,7 +24,7 @@ function semilla() {
   return {
     config: { id: 1, ...CONFIG_DEFECTO },
     equipos: 'ABCDEFGH'.split('').map((l, i) => ({
-      id: crypto.randomUUID(), nombre: `Equipo ${l}`, color: colores[i], escudo_url: null, activo: true, created_at: ahora,
+      id: crypto.randomUUID(), nombre: `Equipo ${l}`, color: colores[i], escudo_url: null, activo: true, numero_sorteo: null, created_at: ahora,
     })),
     jugadores: [], fechas: [], partidos: [], goles: [], actividades: [],
   };

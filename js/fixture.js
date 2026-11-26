@@ -9,6 +9,11 @@ import { parseISO, sumarDias, sumarMinutos, hora, esFeriadoEspecial, claveDiaHor
  * Devuelve rondas: [[{local, visitante}], …] con N-1 rondas (o N si es impar).
  */
 export function roundRobin(ids) {
+  return roundRobinConLibre(ids).map((r) => r.partidos);
+}
+
+/** Igual que roundRobin, pero también dice quién queda libre en cada ronda (o null). */
+export function roundRobinConLibre(ids) {
   const lista = ids.slice();
   if (lista.length < 2) return [];
   if (lista.length % 2 === 1) lista.push(null);
@@ -17,18 +22,43 @@ export function roundRobin(ids) {
   let rot = lista.slice();
   for (let r = 0; r < n - 1; r++) {
     const partidos = [];
+    let libre = null;
     for (let i = 0; i < n / 2; i++) {
       let a = rot[i];
       let b = rot[n - 1 - i];
       // Alternar local/visitante para que nadie sea siempre local.
       if (i === 0 ? r % 2 === 1 : (r + i) % 2 === 1) [a, b] = [b, a];
-      if (a !== null && b !== null) partidos.push({ local: a, visitante: b });
+      if (a === null) libre = b;
+      else if (b === null) libre = a;
+      else partidos.push({ local: a, visitante: b });
     }
-    rondas.push(partidos);
+    rondas.push({ partidos, libre });
     // Rotar todos menos el primero.
     rot = [rot[0], rot[n - 1], ...rot.slice(1, n - 1)];
   }
   return rondas;
+}
+
+/**
+ * Plantilla del fixture por número de sorteo (1..n): quién juega contra quién en cada fecha.
+ * [{ partidos:[{local:1, visitante:8}], libre: 5|null }]
+ * Cada par se cruza una sola vez y, con n impar, cada número queda libre una sola vez.
+ */
+export function plantillaFixture(n) {
+  return roundRobinConLibre(Array.from({ length: n }, (_, i) => i + 1));
+}
+
+/** Estado del sorteo: qué número tiene cada equipo activo y qué falta. */
+export function estadoSorteo(D) {
+  const activos = (D.equipos || []).filter((e) => e.activo !== false);
+  const n = activos.length;
+  const porNumero = new Map();
+  for (const e of activos) {
+    const k = Number(e.numero_sorteo);
+    if (k >= 1 && k <= n && !porNumero.has(k)) porNumero.set(k, e);
+  }
+  const sinNumero = activos.filter((e) => ![...porNumero.values()].includes(e));
+  return { n, porNumero, sinNumero, completo: n >= 2 && porNumero.size === n };
 }
 
 /** Los próximos `cantidad` días de juego a partir de `desde` (inclusive). */
@@ -62,8 +92,13 @@ export function horarios(c, cantidad) {
  */
 export function armarFixture(D) {
   const c = cfg(D);
-  const equipos = (D.equipos || []).filter((e) => e.activo !== false);
-  const rondas = roundRobin(equipos.map((e) => e.id));
+  const sorteo = estadoSorteo(D);
+  if (!sorteo.completo) return { fechas: [], avisos: [], faltan: sorteo.n - sorteo.porNumero.size };
+  // El equipo con el número k ocupa el lugar k de la plantilla.
+  const rondas = plantillaFixture(sorteo.n).map((r) => r.partidos.map((p) => ({
+    local: sorteo.porNumero.get(p.local).id,
+    visitante: sorteo.porNumero.get(p.visitante).id,
+  })));
   const dias = diasDeJuego(c.fecha_inicio, c.dias_juego, rondas.length);
   const avisos = [];
   const fechas = rondas.map((partidos, i) => {

@@ -8,6 +8,7 @@ import {
 } from './calculos.js';
 import { itemsDeFecha } from './fixture.js';
 import { esc, plural, fechaLarga, hora } from './util.js';
+import { protegerSalida } from './salida.js';
 import {
   ICONO, escudo, mapaEquipos, nombreLado, estadoPartido, textoReprogramado, golesPorLado, hayPenales, etiquetaCruce,
 } from './ui.js';
@@ -41,9 +42,11 @@ function leerHash() {
 }
 
 function ir(pestana, extra) {
+  // replaceState: cambiar de pestaña no suma pasos al "atrás" del celular (ver salida.js)
   const h = `#${pestana}${extra ? `/${extra}` : ''}`;
-  if (location.hash !== h) location.hash = h;
-  else render();
+  if (location.hash !== h) history.replaceState(history.state, '', h);
+  leerHash();
+  render();
 }
 
 function pintarPestanas() {
@@ -442,6 +445,11 @@ addEventListener('hashchange', () => { leerHash(); render(); });
 
 leerHash();
 pintarPestanas();
+protegerSalida(() => {
+  if (estado.equipoId) { ir('equipos'); return true; }
+  if (estado.pestana !== 'partidos') { ir('partidos'); scrollTo(0, 0); return true; }
+  return false;
+});
 iniciarDatos({
   alCambiar(D, info) {
     estado.D = D;

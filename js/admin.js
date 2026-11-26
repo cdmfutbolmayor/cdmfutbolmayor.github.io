@@ -485,8 +485,8 @@ function vistaFixture() {
     </section>
     <button class="btn punteado" data-accion="agregar-actividad" style="min-height:48px">+ Agregar partido exhibición u otra actividad</button>
     <p class="ayuda" style="text-align:center">No suma puntos ni goles. Se muestra en la fecha, ordenado por hora.</p>
-    ${puede ? `<button class="btn peligro" data-accion="rehacer-fixture" style="margin-top:12px">Rehacer el fixture desde cero</button>
-      <p class="ayuda" style="text-align:center">Se puede mientras no haya ningún resultado cargado.</p>` : ''}`;
+    ${puede ? `<button class="btn peligro" data-accion="borrar-fixture" style="margin-top:12px">Borrar el fixture y volver al sorteo</button>
+      <p class="ayuda" style="text-align:center">Se puede mientras no haya ningún resultado cargado. Los números del sorteo quedan guardados.</p>` : ''}`;
 }
 
 /** Antes de armar el fixture: cada número del sorteo con su equipo, y cómo queda cada fecha. */
@@ -586,9 +586,26 @@ async function crearFechas(fechas) {
   if (partidos.length) await db.insertar('partidos', partidos);
 }
 
-async function armarElFixture({ rehacer = false } = {}) {
-  if (!puedeRegenerarFixture(D())) {
-    aviso('Ya hay resultados cargados: el fixture no se puede rehacer.', 'error', 4500);
+/** Borra el fixture de la 1ª fase (si no hay resultados) y vuelve a la pantalla del sorteo. */
+async function borrarElFixture() {
+  if (!puedeRegenerarFixture(D()) || hayPlayoff(D())) {
+    aviso('Ya hay resultados cargados: el fixture no se puede borrar.', 'error', 4500);
+    return;
+  }
+  const ok = await confirmar('Se borra el fixture actual (partidos, días y actividades) y volvés a la pantalla del sorteo para armarlo de nuevo. ¿Seguimos?', { si: 'Borrar', peligro: true });
+  if (!ok) return;
+  const r = await guardar(() => db.borrar('fechas', D().fechas.filter((f) => f.fase === 'todos').map((f) => f.id)), { ok: 'Fixture borrado' });
+  if (r) {
+    estado.fechaFix = null;
+    estado.abierto = null;
+    render();
+    scrollTo(0, 0);
+  }
+}
+
+async function armarElFixture() {
+  if (D().fechas.some((f) => f.fase === 'todos')) {
+    aviso('Ya hay un fixture armado. Para empezar de nuevo, borralo primero.', 'error', 4500);
     return;
   }
   const { fechas, avisos, faltan } = armarFixture(D());
@@ -596,14 +613,7 @@ async function armarElFixture({ rehacer = false } = {}) {
     if (faltan) aviso(faltan === 1 ? 'Falta asignar 1 número del sorteo.' : `Faltan asignar ${faltan} números del sorteo.`, 'error');
     return;
   }
-  if (rehacer) {
-    const ok = await confirmar('Se borra el fixture actual (partidos, días y actividades) y se arma uno nuevo. ¿Seguimos?', { si: 'Rehacer', peligro: true });
-    if (!ok) return;
-  }
-  const r = await guardar(async () => {
-    if (rehacer) await db.borrar('fechas', D().fechas.filter((f) => f.fase === 'todos').map((f) => f.id));
-    await crearFechas(fechas);
-  }, { ok: `Fixture listo: ${plural(fechas.length, 'fecha', 'fechas')}` });
+  const r = await guardar(() => crearFechas(fechas), { ok: `Fixture listo: ${plural(fechas.length, 'fecha', 'fechas')}` });
   if (r) {
     estado.fechaFix = null;
     if (avisos.length) await dialogo({ titulo: 'Ojo con estas fechas', contenido: `<p>${avisos.map(esc).join('<br>')}</p><p class="ayuda">No se movieron solas. Si hace falta, movelas con "Mover toda la fecha".</p>` });
@@ -1017,7 +1027,7 @@ const acciones = {
   // Fixture
   'fecha-fix': (b) => { estado.fechaFix = b.dataset.id; estado.abierto = null; render(); },
   'armar-fixture': () => armarElFixture(),
-  'rehacer-fixture': () => armarElFixture({ rehacer: true }),
+  'borrar-fixture': () => borrarElFixture(),
   'mover-fecha': () => moverLaFecha(),
   'abrir-item': (b) => { estado.abierto = estado.abierto === b.dataset.id ? null : b.dataset.id; render(); },
   'cerrar-item': () => { estado.abierto = null; render(); },

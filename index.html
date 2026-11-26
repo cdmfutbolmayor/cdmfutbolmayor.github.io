@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nocturno Comercial · C.D. Mitre</title>
+<meta name="description" content="Partidos, tabla, goleadores y playoff del torneo Nocturno Comercial del Club Deportivo Mitre.">
+<meta name="theme-color" content="#0b2d5b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Nocturno">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="app">
+  <header class="cabecera">
+    <div class="marca">
+      <img class="logo" src="assets/logo-mitre-75.jpg" alt="Escudo C.D. Mitre 75 aniversario" width="44" height="54">
+      <div>
+        <h1 class="titulo" id="titulo" style="margin:0">Nocturno Comercial</h1>
+        <div class="subtitulo" id="subtitulo">C.D. Mitre · 75 aniversario</div>
+      </div>
+    </div>
+    <nav class="pestanas" role="tablist" aria-label="Secciones" id="pestanas"></nav>
+  </header>
+  <div id="bandas"></div>
+  <main class="contenido" id="contenido" tabindex="-1">
+    <div class="cargando">Cargando…</div>
+  </main>
+</div>
+<script type="module" src="js/publico.js"></script>
+</body>
+</html>

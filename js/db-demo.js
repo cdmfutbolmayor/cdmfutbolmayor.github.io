@@ -2,7 +2,7 @@
 // Se usa cuando js/config.js no tiene los datos de Supabase. Sirve para probar sin tocar la base real.
 // Imita lo importante de la base real: roles (admin / cargador), el marcador que sale de los goles,
 // los cambios de estado con sus permisos y el avance de cruces del playoff.
-import { CONFIG_DEFECTO, resolverCruces } from './calculos.js';
+import { CONFIG_DEFECTO, resolverCruces, parsearOrigen } from './calculos.js';
 import { SinConexion } from './db.js';
 
 const CLAVE = 'nocturno-demo-v1';
@@ -320,6 +320,33 @@ export function crear() {
       const u = leer().usuarios.find((x) => x.user_id === ses.id);
       if (!u || !u.activo) return null;
       return { id: u.user_id, email: u.email, nombre: u.nombre, rol: u.rol, sinClave: !!u.invitado };
+    },
+
+    async borrarResultado(partidoId) {
+      red();
+      await espera();
+      const s = leer();
+      if (rolDe(s) !== 'admin') throw new Error(SIN_PERMISO);
+      const p = s.partidos.find((x) => x.id === partidoId);
+      if (!p) return;
+      // Cruces que dependen de este partido (como sql/008)
+      const dependeDeEste = (origen) => {
+        const o = parsearOrigen(origen);
+        return o && o.tipo !== 'posicion' && o.ronda === p.ronda && Number(o.llave) === Number(p.llave || 1);
+      };
+      const siguientes = p.ronda === 'todos' ? [] : s.partidos.filter((x) => dependeDeEste(x.local_origen) || dependeDeEste(x.visitante_origen));
+      if (siguientes.some((x) => x.estado !== 'programado')) {
+        throw new Error('El cruce siguiente ya se empezó a jugar: primero borrá ese resultado.');
+      }
+      s.goles = s.goles.filter((g) => g.partido_id !== p.id);
+      s.tarjetas = s.tarjetas.filter((t) => t.partido_id !== p.id);
+      Object.assign(p, { estado: 'programado', goles_local: null, goles_visitante: null, penales_local: null, penales_visitante: null, actualizado_por: sesionGuardada().id });
+      for (const x of siguientes) {
+        if (dependeDeEste(x.local_origen)) x.local_id = null;
+        if (dependeDeEste(x.visitante_origen)) x.visitante_id = null;
+      }
+      guardar(s);
+      avisar('partidos');
     },
 
     async reiniciar(borrarFixture) {

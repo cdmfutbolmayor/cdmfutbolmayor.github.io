@@ -392,13 +392,18 @@ function vistaCarga(p) {
         : `<button class="btn grande primario" data-accion="terminar">${directo ? 'Guardar resultado' : 'Terminar partido'}</button>`}
       ${directo ? '' : `<button class="btn grande" data-accion="placa-partido">${ICONO.compartir}Compartir placa del resultado</button>`}
       ${fin || directo ? '' : '<button class="btn peligro" data-accion="suspender">Suspender partido</button>'}
+      ${soyAdmin() && (fin || p.estado === 'en_juego' || (directo && tieneCargaDirecta(p)))
+        ? `<button class="btn peligro" data-accion="borrar-resultado">${ICONO.borrar}Borrar resultado</button>
+           <p class="ayuda" style="text-align:center">Borra goles, tarjetas y marcador: el partido queda como si no se hubiera jugado.</p>`
+        : ''}
     </div>`;
 }
 
 /** ¿El partido programado ya tiene algo cargado (marcador, goles o tarjetas)? Entonces se sigue en carga directa. */
 function tieneCargaDirecta(p) {
-  return (p.goles_local !== null && p.goles_local !== undefined) || (p.goles_visitante !== null && p.goles_visitante !== undefined)
-    || D().goles.some((g) => g.partido_id === p.id) || (D().tarjetas || []).some((t) => t.partido_id === p.id);
+  // El marcador sale de los goles: lo que cuenta es si hay goles o tarjetas cargados
+  // (un 0-0 guardado de un partido que se volvió a programar no es una carga empezada).
+  return D().goles.some((g) => g.partido_id === p.id) || (D().tarjetas || []).some((t) => t.partido_id === p.id);
 }
 
 function seccionTarjetas(p, L, V, fin) {
@@ -1234,6 +1239,19 @@ const acciones = {
     if (ok) await cambiarEstado('suspendido');
   },
   'reprogramar-partido': () => cambiarEstado('programado'),
+  'borrar-resultado': async () => {
+    const p = partidoActual();
+    const eqs = mapaEquipos(D());
+    const ok = await confirmar(`Se borran todos los goles, las tarjetas y el marcador de ${nombreLado(p, 'local', eqs)} vs ${nombreLado(p, 'visitante', eqs)}. El partido queda como si no se hubiera jugado${p.ronda !== 'todos' ? ' y, si alguien había pasado al cruce siguiente, se saca' : ''}. ¿Seguro?`, { si: 'Borrar resultado', peligro: true });
+    if (!ok) return;
+    const r = await guardar(() => db.borrarResultado(p.id), { ok: 'Resultado borrado: el partido queda sin jugar' });
+    if (r) {
+      estado.directo = null;
+      estado.sugerirPlantel = null;
+      estado.gol = { equipo: null, nombre: '', minuto: '', enContra: false };
+      render();
+    }
+  },
   'placa-partido': () => {
     const p = partidoActual();
     const eqs = mapaEquipos(D());

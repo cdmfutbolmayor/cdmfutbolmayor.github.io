@@ -331,9 +331,7 @@ img.escudo { border: 1px solid var(--borde); }
 .cuenta-tarjetas { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--sec); margin-right: 8px; }
 .btn-gol:disabled { opacity: .35; cursor: default; }
 
-/* ── Pie público y app instalable ───────────────────────── */
-.pie-publico { padding: 8px 16px 28px; text-align: center; }
-.pie-publico a { font-size: 12px; color: var(--sec); text-decoration: underline; text-underline-offset: 2px; display: inline-block; padding: 12px 8px; }
+/* ── App instalable del panel ───────────────────────────── */
 .instalar { background: #fff; border: 1px solid var(--borde); border-radius: var(--radio); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .instalar b { font-size: 14px; }
 .ver-web { color: #fff; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; padding: 10px 4px; min-height: 44px; white-space: nowrap; }

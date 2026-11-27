@@ -17,6 +17,7 @@ function chequear({ data, error }) {
       throw new Error('No tenés permiso para hacer eso.');
     }
     if (/faltan penales/i.test(error.message || '')) throw new Error('Empataron: cargá los penales (con un ganador) antes de terminar.');
+    if (/cruce siguiente jugado/i.test(error.message || '')) throw new Error('El cruce siguiente ya se empezó a jugar: primero borrá ese resultado.');
     const e = new Error('No se pudo guardar.');
     e.detalle = error;
     throw e;
@@ -136,6 +137,11 @@ export function crear(url, anonKey) {
       // ¿Todavía no eligió contraseña? (si el SQL 005 no está aplicado, se asume que sí tiene)
       const { data: sinClave } = await sb.rpc('torneo_necesito_clave');
       return { id: u.id, email: u.email, nombre: data.nombre || null, rol: data.rol || 'admin', sinClave: sinClave === true };
+    },
+
+    /** Borra goles, tarjetas y marcador: el partido queda sin jugar (solo admin). */
+    async borrarResultado(partidoId) {
+      return seguro(sb.rpc('torneo_borrar_resultado', { p_partido: partidoId }));
     },
 
     async reiniciar(borrarFixture) {

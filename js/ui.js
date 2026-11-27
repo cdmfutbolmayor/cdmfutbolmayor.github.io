@@ -1,6 +1,6 @@
 // Piezas de interfaz compartidas por la vista pública y el admin.
 import { esc, inicial, textoSobre, fechaCorta, fechaLargaMin, hora } from './util.js';
-import { esReprogramado, nombreCruce } from './calculos.js';
+import { esReprogramado, nombreCruce, esSinIdentificar } from './calculos.js';
 
 const svg = (d, extra = '') =>
   `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${d}</svg>`;
@@ -22,6 +22,7 @@ export const ICONO = {
   resultados: svg('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14M3 12h4M17 12h4"/>'),
   equipos: svg('<path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/>'),
   formato: svg('<path d="M4 6h6v4H4zM14 14h6v4h-6zM10 8h4v8"/>'),
+  usuarios: svg('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"/>'),
   enlace: svg('<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>'),
 };
 
@@ -67,7 +68,7 @@ export function golesPorLado(D, p) {
   for (const lado of ['local', 'visitante']) {
     const eqId = p[`${lado}_id`];
     const cuenta = new Map();
-    for (const g of goles.filter((x) => x.equipo_id === eqId)) {
+    for (const g of goles.filter((x) => x.equipo_id === eqId && !esSinIdentificar(x))) {
       const nombre = String(g.jugador_nombre || '').trim() || 'Sin nombre';
       const k = `${nombre.toLowerCase()}|${g.en_contra ? 1 : 0}`;
       const x = cuenta.get(k) || { nombre, ec: !!g.en_contra, n: 0 };
@@ -79,6 +80,27 @@ export function golesPorLado(D, p) {
       .join(', ');
   }
   return res;
+}
+
+/** Tarjetas del partido por lado: { local:[{nombre, tipo, minuto}], visitante:[…] }, ordenadas por minuto. */
+export function tarjetasPorLado(D, p) {
+  const res = { local: [], visitante: [] };
+  const lista = (D.tarjetas || []).filter((t) => t.partido_id === p.id)
+    .sort((a, b) => (a.minuto ?? 999) - (b.minuto ?? 999) || String(a.created_at).localeCompare(String(b.created_at)));
+  for (const t of lista) {
+    const lado = t.equipo_id === p.local_id ? 'local' : t.equipo_id === p.visitante_id ? 'visitante' : null;
+    if (lado) res[lado].push({ nombre: String(t.jugador_nombre || '').trim(), tipo: t.tipo, minuto: t.minuto });
+  }
+  return res;
+}
+
+export function icoTarjeta(tipo) {
+  return `<span class="ico-tarjeta ${tipo === 'roja' ? 'roja' : 'amarilla'}" role="img" aria-label="${tipo === 'roja' ? 'Roja' : 'Amarilla'}"></span>`;
+}
+
+/** ¿Se puede mostrar lo cargado del partido? (en carga directa sigue "programado" hasta guardarlo) */
+export function partidoVisible(p) {
+  return p.estado === 'en_juego' || p.estado === 'finalizado';
 }
 
 export function etiquetaCruce(p) {

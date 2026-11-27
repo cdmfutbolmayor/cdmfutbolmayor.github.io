@@ -11,6 +11,7 @@ import { esc, plural, fechaLarga, hora } from './util.js';
 import { protegerSalida } from './salida.js';
 import {
   ICONO, escudo, mapaEquipos, nombreLado, estadoPartido, textoReprogramado, golesPorLado, hayPenales, etiquetaCruce,
+  tarjetasPorLado, icoTarjeta, partidoVisible,
 } from './ui.js';
 
 const PESTANAS = [
@@ -102,7 +103,11 @@ export function filaPartido(D, p, fecha, eqs) {
     const esc_ = escudo(eq, 20);
     return `<div class="p-lado ${l}">${l === 'local' ? nombre + esc_ : esc_ + nombre}</div>`;
   };
-  const goles = golesPorLado(D, p);
+  // Lo cargado se muestra solo si el partido está en juego o terminado (la carga directa no se ve hasta guardarla)
+  const visible = partidoVisible(p);
+  const goles = visible ? golesPorLado(D, p) : { local: '', visitante: '' };
+  const tarj = visible ? tarjetasPorLado(D, p) : { local: [], visitante: [] };
+  const ladoTarjetas = (lista) => lista.map((t) => `<span class="t">${icoTarjeta(t.tipo)}${esc(t.nombre)}</span>`).join('');
   const extras = [];
   if (p.estado === 'suspendido') extras.push('<div class="etiqueta susp">Suspendido</div>');
   else if (esReprogramado(p, fecha) && p.estado !== 'finalizado') extras.push(`<div class="etiqueta reprog">${esc(textoReprogramado(p))}</div>`);
@@ -116,6 +121,7 @@ export function filaPartido(D, p, fecha, eqs) {
         ${lado('visitante')}
       </div>
       ${goles.local || goles.visitante ? `<div class="p-goles"><span class="l">${esc(goles.local)}</span><span class="v">${esc(goles.visitante)}</span></div>` : ''}
+      ${tarj.local.length || tarj.visitante.length ? `<div class="p-tarjetas"><span class="l">${ladoTarjetas(tarj.local)}</span><span class="v">${ladoTarjetas(tarj.visitante)}</span></div>` : ''}
       ${cruce && fecha && fecha.fase === 'playoff' && cruce !== fecha.nombre ? `<div class="etiqueta cruce">${esc(cruce)}</div>` : ''}
       ${extras.join('')}
     </div>`;
@@ -207,12 +213,23 @@ function detalleEquipo(D, f) {
     const g = goleadores.find((x) => x.jugador_id === j.id || (!x.jugador_id && x.nombre.trim().toLowerCase() === j.nombre.trim().toLowerCase()));
     return g ? g.goles : 0;
   };
-  const filasJug = plantel.map((j) => ({ nombre: j.nombre, goles: golesDe(j) }));
+  const filasJug = plantel.map((j) => ({ nombre: j.nombre, goles: golesDe(j), id: j.id }));
   // Goleadores que no están en el plantel (se cargaron solo con el nombre)
   for (const g of goleadores) {
     const yaEsta = filasJug.some((x) => x.nombre.trim().toLowerCase() === g.nombre.trim().toLowerCase());
     if (!yaEsta) filasJug.push({ nombre: g.nombre, goles: g.goles });
   }
+  // Tarjetas del equipo (solo de partidos en juego o terminados)
+  const visibles = new Set((D.partidos || []).filter(partidoVisible).map((p) => p.id));
+  const tarjetasEq = (D.tarjetas || []).filter((t) => t.equipo_id === f.equipo_id && visibles.has(t.partido_id));
+  for (const t of tarjetasEq) {
+    const k = String(t.jugador_nombre || '').trim().toLowerCase();
+    let fila = filasJug.find((x) => (t.jugador_id && x.id === t.jugador_id) || x.nombre.trim().toLowerCase() === k);
+    if (!fila) { fila = { nombre: String(t.jugador_nombre).trim(), goles: 0 }; filasJug.push(fila); }
+    fila[t.tipo] = (fila[t.tipo] || 0) + 1;
+  }
+  const cuentaTarjetas = (j) => ['amarilla', 'roja'].filter((x) => j[x])
+    .map((x) => `<span class="cuenta-tarjetas">${icoTarjeta(x)}${j[x]}</span>`).join('');
   filasJug.sort((a, b) => b.goles - a.goles || a.nombre.localeCompare(b.nombre, 'es'));
 
   const partidos = (D.partidos || [])
@@ -258,7 +275,7 @@ function detalleEquipo(D, f) {
     </section>
     <section class="tarjeta">
       <div class="tarjeta-cab"><span style="flex:1">Plantel</span><span>Goles</span></div>
-      ${filasJug.length ? filasJug.map((j) => `<div class="fila"><span style="flex:1;font-weight:500">${esc(j.nombre)}</span><span class="num-grande ${j.goles ? '' : 'cero'}">${j.goles || '–'}</span></div>`).join('')
+      ${filasJug.length ? filasJug.map((j) => `<div class="fila"><span style="flex:1;font-weight:500">${esc(j.nombre)}</span>${cuentaTarjetas(j)}<span class="num-grande ${j.goles ? '' : 'cero'}">${j.goles || '–'}</span></div>`).join('')
         : '<div class="vacio" style="text-align:left">Todavía no se cargó el plantel de este equipo.</div>'}
     </section>
     <section class="tarjeta">

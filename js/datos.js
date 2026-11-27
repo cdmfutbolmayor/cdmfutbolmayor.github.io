@@ -13,7 +13,7 @@ const CLAVE_CACHE = 'nocturno-datos-v1';
 const POLLING_MS = 60_000;
 
 function vacio() {
-  return { config: { ...CONFIG_DEFECTO }, equipos: [], jugadores: [], fechas: [], partidos: [], goles: [], actividades: [] };
+  return { config: { ...CONFIG_DEFECTO }, equipos: [], jugadores: [], fechas: [], partidos: [], goles: [], actividades: [], tarjetas: [] };
 }
 
 function normalizar(D) {

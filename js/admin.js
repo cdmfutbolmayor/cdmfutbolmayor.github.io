@@ -2,7 +2,7 @@
 import { getDb, MODO, esErrorDeRed } from './db.js';
 import { iniciarDatos } from './datos.js';
 import {
-  cfg, calcularTabla, calcularGoleadores, fechasOrdenadas, fechaEnCurso, esReprogramado, diferenciaGoles, libresDeFecha,
+  cfg, calcularTabla, calcularGoleadores, fechasOrdenadas, fechaEnCurso, esReprogramado, libresDeFecha, SIN_IDENTIFICAR,
   armarCruces, resolverCruces, hayPlayoff, primeraFaseTerminada, ganadorPartido, NOMBRE_DESEMPATE, NOMBRE_RONDA,
   nombreCruce, tieneResultado, CONFIG_DEFECTO,
 } from './calculos.js';
@@ -17,16 +17,31 @@ import {
 } from './placas.js';
 
 const app = document.getElementById('app');
+
+// ¿Se llegó desde el link del mail (invitación o "olvidé mi contraseña")?
+const LLEGO_PARA_CREAR_CLAVE = new URLSearchParams(location.search).has('crear-clave')
+  || /type=(invite|recovery)/.test(location.hash);
+const LINK_VENCIDO = /error_code=otp_expired|error=access_denied/.test(location.hash);
+
+/** Adónde vuelve el link del mail: esta misma página con ?crear-clave=1 */
+function urlCrearClave() {
+  return `${location.origin}${location.pathname}?crear-clave=1`;
+}
 let db;
 let almacen;
 
 const estado = {
   vista: 'resultados',
   conectado: true,
+  yo: null,        // { id, email, nombre, rol }
+  nombres: {},     // user_id → nombre, para "Cargó Juan"
+  usuarios: null,  // lista de la pantalla Usuarios
   // Resultados
   fechaRes: null,
   partido: null,
   gol: { equipo: null, nombre: '', minuto: '', enContra: false },
+  tarjeta: { equipo: null, nombre: '', minuto: '', tipo: 'amarilla' },
+  directo: null, // partido en carga directa
   sugerirPlantel: null, // { equipo_id, nombre }
   // Fixture
   fechaFix: null,
@@ -37,6 +52,8 @@ const estado = {
 };
 
 const D = () => almacen.D;
+const soyAdmin = () => !!estado.yo && estado.yo.rol === 'admin';
+const nombreDe = (userId) => (userId && estado.nombres[userId]) || null;
 
 // ── Guardado ───────────────────────────────────────────────
 
@@ -112,6 +129,7 @@ const MENU = [
   ['fixture', 'Fixture', ICONO.calendario],
   ['equipos', 'Equipos', ICONO.equipos],
   ['formato', 'Formato', ICONO.formato],
+  ['usuarios', 'Usuarios', ICONO.usuarios],
 ];
 
 function esqueleto() {
@@ -119,14 +137,14 @@ function esqueleto() {
     <header class="cabecera"><div id="cab"></div><span id="conexion" class="conexion"></span></header>
     ${MODO === 'demo' ? '<div class="banda prueba">Modo de prueba: los datos quedan guardados solo en este navegador.</div>' : ''}
     <main class="contenido" id="contenido"></main>
-    <nav class="menu-inferior" aria-label="Secciones del panel">
+    ${soyAdmin() ? `<nav class="menu-inferior" aria-label="Secciones del panel">
       ${MENU.map(([k, l, i]) => `<button data-vista="${k}">${i}<span>${l}</span></button>`).join('')}
-    </nav>`;
+    </nav>` : ''}`;
 }
 
 function pintarCabecera() {
   if (!almacen) return;
-  const titulos = { resultados: 'Panel del torneo', fixture: 'Fixture y días', equipos: 'Equipos', formato: 'Formato del torneo' };
+  const titulos = { resultados: soyAdmin() ? 'Panel del torneo' : 'Carga de resultados', fixture: 'Fixture y días', equipos: 'Equipos', formato: 'Formato del torneo', usuarios: 'Usuarios' };
   const c = cfg(D());
   let sub = c.nombre;
   if (estado.vista === 'resultados') {
@@ -141,6 +159,8 @@ function pintarCabecera() {
     sub = `${plural(eqs.length, 'equipo', 'equipos')} · ${con} con plantel`;
   } else if (estado.vista === 'formato') {
     sub = hayPlayoff(D()) ? 'El playoff ya está armado' : 'Se puede cambiar hasta que se arme el playoff';
+  } else if (estado.vista === 'usuarios') {
+    sub = 'Quién puede cargar datos del torneo';
   }
   const cab = document.getElementById('cab');
   if (!cab) return;
@@ -158,7 +178,8 @@ function render() {
   if (!almacen) return;
   renderPendiente = false;
   pintarCabecera();
-  const vistas = { resultados: vistaResultados, fixture: vistaFixture, equipos: vistaEquipos, formato: vistaFormato };
+  if (!soyAdmin()) estado.vista = 'resultados'; // el cargador solo ve Resultados
+  const vistas = { resultados: vistaResultados, fixture: vistaFixture, equipos: vistaEquipos, formato: vistaFormato, usuarios: vistaUsuarios };
   document.getElementById('contenido').innerHTML = vistas[estado.vista]();
 }
 
@@ -207,14 +228,16 @@ function vistaResultados() {
   }
   const f = fechaResultados();
   if (!f) {
-    return `<div class="tarjeta pad"><p style="margin:0">Todavía no hay fixture. Primero cargá los equipos y después armá el fixture.</p>
-      <button class="btn primario" data-vista="fixture">Ir a Fixture</button></div>`;
+    return soyAdmin()
+      ? `<div class="tarjeta pad"><p style="margin:0">Todavía no hay fixture. Primero cargá los equipos y después armá el fixture.</p>
+      <button class="btn primario" data-vista="fixture">Ir a Fixture</button></div>`
+      : `<div class="tarjeta pad"><p style="margin:0">Todavía no hay fixture armado.</p></div>${bloqueCuenta()}`;
   }
   const eqs = mapaEquipos(D());
   const ps = itemsDeFecha(D(), f).filter((x) => x.tipo === 'partido');
   const filas = ps.map((p) => `
     <button class="fila fila-btn" data-accion="abrir-partido" data-id="${p.id}">
-      <span class="txt"><span style="font-weight:600">${esc(textoPartido(p, eqs))}</span>${p.ronda !== 'todos' ? `<span class="sub">${esc(nombreCruce(p.ronda, p.llave))}</span>` : ''}</span>
+      <span class="txt"><span style="font-weight:600">${esc(textoPartido(p, eqs))}</span>${p.ronda !== 'todos' ? `<span class="sub">${esc(nombreCruce(p.ronda, p.llave))}</span>` : ''}${p.estado === 'en_juego' && nombreDe(p.actualizado_por) ? `<span class="sub">Lo está cargando ${esc(nombreDe(p.actualizado_por))}</span>` : ''}</span>
       ${chipEstado(p, f)}
     </button>`).join('');
   return `
@@ -229,6 +252,15 @@ function vistaResultados() {
       <div class="placas">
         ${TIPOS_PLACA.map((t) => `<button class="btn" data-accion="placa" data-tipo="${t.id}">${ICONO.compartir}<span>${esc(t.texto)}</span></button>`).join('')}
       </div>
+    </section>
+    ${soyAdmin() ? '' : bloqueCuenta()}`;
+}
+
+/** Para el cargador (que no tiene menú): quién está conectado y cerrar sesión. */
+function bloqueCuenta() {
+  return `<section class="tarjeta pad">
+      <span class="ayuda">Entraste como ${esc(estado.yo?.nombre || estado.yo?.email || '')} · cargás resultados</span>
+      <button class="btn" data-accion="salir">${ICONO.salir}Cerrar sesión</button>
     </section>`;
 }
 
@@ -246,7 +278,9 @@ function vistaCarga(p) {
       <p class="ayuda">Se completa solo cuando terminen los partidos anteriores.</p></div>`;
   }
 
-  if (p.estado === 'programado' || p.estado === 'suspendido') {
+  // Carga directa: el partido sigue "programado" (no se ve en la web) hasta que se guarda el resultado.
+  const directo = soyAdmin() && p.estado === 'programado' && (estado.directo === p.id || tieneCargaDirecta(p));
+  if (p.estado === 'suspendido' || (p.estado === 'programado' && !directo)) {
     return `${volver}
       <section class="tarjeta pad">
         <span class="ayuda">${esc(titulo)}</span>
@@ -257,8 +291,10 @@ function vistaCarga(p) {
         </div>
         ${p.estado === 'suspendido' ? '<div class="alerta">Este partido está suspendido.</div>' : ''}
         ${p.estado === 'suspendido'
-          ? '<button class="btn grande primario" data-accion="reprogramar-partido">Volver a programarlo</button>'
+          ? (soyAdmin() ? '<button class="btn grande primario" data-accion="reprogramar-partido">Volver a programarlo</button>' : '<p class="ayuda">Para volver a programarlo, avisale a un admin.</p>')
           : '<button class="btn grande primario" data-accion="empezar">Empezar partido</button>'}
+        ${p.estado === 'programado' && soyAdmin() ? `<button class="btn grande secundario" data-accion="carga-directa">Cargar el resultado directo</button>
+          <p class="ayuda">Para un partido ya jugado: ponés los goles, los autores y las tarjetas, y lo guardás de una. No hace falta empezarlo ni terminarlo.</p>` : ''}
         ${p.estado === 'programado' ? '<button class="btn peligro" data-accion="suspender">Suspender partido</button>' : ''}
         <p class="ayuda">Para cambiar el día o la hora, andá a Fixture.</p>
       </section>`;
@@ -266,19 +302,16 @@ function vistaCarga(p) {
 
   const fin = p.estado === 'finalizado';
   const goles = D().goles.filter((g) => g.partido_id === p.id).sort((a, b) => (a.minuto ?? 999) - (b.minuto ?? 999) || String(a.created_at).localeCompare(String(b.created_at)));
-  const dif = diferenciaGoles(p, D().goles);
-  const avisoDif = dif.map((d) => {
-    const n = eqs.get(d.equipo_id)?.nombre || '';
-    return d.faltan > 0 ? `Falta cargar ${plural(d.faltan, 'gol', 'goles')} de ${n}.` : `Hay ${plural(-d.faltan, 'gol cargado', 'goles cargados')} de más de ${n}.`;
-  });
+  // El marcador sale de los goles: "+" agrega un gol de ese equipo y "−" quita el último.
+  const golesDe = (eq) => goles.filter((x) => x.equipo_id === eq.id).length;
   const lado = (l, eq) => `
     <div class="lado">
       ${escudo(eq, 40)}
       <span class="n">${esc(eq.nombre)}</span>
       <div class="ctrl">
-        <button class="btn-gol" data-accion="restar" data-lado="${l}" aria-label="Restar gol a ${esc(eq.nombre)}" ${fin ? 'disabled' : ''}>${ICONO.menos}</button>
-        <span class="goles" aria-live="polite">${p[`goles_${l}`] ?? 0}</span>
-        <button class="btn-gol mas" data-accion="sumar" data-lado="${l}" aria-label="Sumar gol a ${esc(eq.nombre)}" ${fin ? 'disabled' : ''}>${ICONO.mas}</button>
+        <button class="btn-gol" data-accion="restar" data-lado="${l}" aria-label="Quitar el último gol de ${esc(eq.nombre)}" ${fin || !golesDe(eq) ? 'disabled' : ''}>${ICONO.menos}</button>
+        <span class="goles" aria-live="polite">${golesDe(eq)}</span>
+        <button class="btn-gol mas" data-accion="sumar" data-lado="${l}" aria-label="Agregar gol de ${esc(eq.nombre)}" ${fin ? 'disabled' : ''}>${ICONO.mas}</button>
       </div>
     </div>`;
 
@@ -290,16 +323,16 @@ function vistaCarga(p) {
   if (!g.enContra) D().goles.filter((x) => x.equipo_id === deQuien && !x.en_contra).forEach((x) => sugeridos.add(x.jugador_nombre));
   const empatado = Number(p.goles_local ?? 0) === Number(p.goles_visitante ?? 0);
   const penales = p.ronda !== 'todos' && empatado;
-  const sug = estado.sugerirPlantel && estado.sugerirPlantel.partido === p.id ? estado.sugerirPlantel : null;
+  const sug = !fin && estado.sugerirPlantel && estado.sugerirPlantel.partido === p.id ? estado.sugerirPlantel : null;
 
   return `${volver}
     <section class="tarjeta pad" style="gap:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        ${fin ? '<span class="chip fin">Terminado</span>' : '<span class="estado-vivo">EN JUEGO</span>'}
+        ${fin ? '<span class="chip fin">Terminado</span>' : directo ? '<span class="chip">Carga del resultado</span>' : '<span class="estado-vivo">EN JUEGO</span>'}
         <span class="ayuda" style="text-align:right">${esc(titulo)}</span>
       </div>
       <div class="marcador-adm">${lado('local', L)}${lado('visitante', V)}</div>
-      ${avisoDif.length ? `<div class="alerta">${avisoDif.map(esc).join('<br>')}</div>` : ''}
+      ${directo ? '<p class="ayuda">Todavía no se ve en la web: aparece cuando tocás "Guardar resultado".</p>' : ''}
       ${penales ? `
         <div style="border-top:1px solid var(--borde);padding-top:12px;display:flex;flex-direction:column;gap:8px">
           <span style="font-weight:700">Penales</span>
@@ -314,7 +347,8 @@ function vistaCarga(p) {
       <span style="font-weight:700">Goles</span>
       ${goles.length ? goles.map((x) => {
         const eq = eqs.get(x.equipo_id);
-        return `<div class="gol-item">${escudo(eq, 22)}<span class="n">${esc(x.jugador_nombre)}${x.en_contra ? ' <small>(en contra)</small>' : ''}${x.minuto !== null && x.minuto !== undefined ? ` <small>${x.minuto}'</small>` : ''}</span>
+        const quien = nombreDe(x.cargado_por);
+        return `<div class="gol-item">${escudo(eq, 22)}<span class="n">${esc(x.jugador_nombre)}${x.en_contra ? ' <small>(en contra)</small>' : ''}${x.minuto !== null && x.minuto !== undefined ? ` <small>${x.minuto}'</small>` : ''}${quien ? `<small style="display:block">Cargó ${esc(quien)}</small>` : ''}</span>
           ${fin ? '' : `<button class="btn-icono" data-accion="quitar-gol" data-id="${x.id}" aria-label="Quitar gol de ${esc(x.jugador_nombre)}">${ICONO.cerrar}</button>`}</div>`;
       }).join('') : '<span class="ayuda">Todavía no hay goles cargados.</span>'}
       ${sug ? `<div class="alerta info" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -335,28 +369,101 @@ function vistaCarga(p) {
           <label class="campo">Minuto (opcional)<input type="number" inputmode="numeric" min="0" max="200" data-gol="minuto" value="${esc(g.minuto)}"></label>
           <label class="check"><input type="checkbox" data-gol="enContra" ${g.enContra ? 'checked' : ''}> En contra</label>
         </div>
-        <button class="btn secundario" data-accion="agregar-gol">Agregar gol</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn secundario" style="flex:1" data-accion="agregar-gol">Agregar gol</button>
+          <button class="btn" data-accion="gol-sin-identificar" style="font-size:13px">Gol sin identificar</button>
+        </div>
+        <p class="ayuda">Si no sabés quién lo hizo, usá "Gol sin identificar": suma al marcador y después se puede corregir.</p>
       </div>`}
     </section>
 
+    ${seccionTarjetas(p, L, V, fin)}
+
     <div style="display:flex;flex-direction:column;gap:8px">
       ${fin
-        ? '<button class="btn grande" data-accion="corregir">Corregir resultado</button>'
-        : '<button class="btn grande primario" data-accion="terminar">Terminar partido</button>'}
-      <button class="btn grande" data-accion="placa-partido">${ICONO.compartir}Compartir placa del resultado</button>
-      ${fin ? '' : '<button class="btn peligro" data-accion="suspender">Suspender partido</button>'}
+        ? (soyAdmin() ? '<button class="btn grande" data-accion="corregir">Corregir resultado</button>' : '<p class="ayuda" style="text-align:center">Para corregir un partido terminado, avisale a un admin.</p>')
+        : `<button class="btn grande primario" data-accion="terminar">${directo ? 'Guardar resultado' : 'Terminar partido'}</button>`}
+      ${directo ? '' : `<button class="btn grande" data-accion="placa-partido">${ICONO.compartir}Compartir placa del resultado</button>`}
+      ${fin || directo ? '' : '<button class="btn peligro" data-accion="suspender">Suspender partido</button>'}
     </div>`;
+}
+
+/** ¿El partido programado ya tiene algo cargado (marcador, goles o tarjetas)? Entonces se sigue en carga directa. */
+function tieneCargaDirecta(p) {
+  return (p.goles_local !== null && p.goles_local !== undefined) || (p.goles_visitante !== null && p.goles_visitante !== undefined)
+    || D().goles.some((g) => g.partido_id === p.id) || (D().tarjetas || []).some((t) => t.partido_id === p.id);
+}
+
+function seccionTarjetas(p, L, V, fin) {
+  const eqs = mapaEquipos(D());
+  const lista = (D().tarjetas || []).filter((t) => t.partido_id === p.id)
+    .sort((a, b) => (a.minuto ?? 999) - (b.minuto ?? 999) || String(a.created_at).localeCompare(String(b.created_at)));
+  const t = estado.tarjeta;
+  if (!t.equipo || (t.equipo !== p.local_id && t.equipo !== p.visitante_id)) t.equipo = p.local_id;
+  const sugeridos = new Set(D().jugadores.filter((j) => j.equipo_id === t.equipo && j.activo !== false).map((j) => j.nombre));
+  D().goles.filter((g) => g.equipo_id === t.equipo && !g.en_contra).forEach((g) => sugeridos.add(g.jugador_nombre));
+  (D().tarjetas || []).filter((x) => x.equipo_id === t.equipo).forEach((x) => sugeridos.add(x.jugador_nombre));
+  return `
+    <section class="tarjeta pad" style="gap:10px">
+      <span style="font-weight:700">Tarjetas</span>
+      ${lista.length ? lista.map((x) => `<div class="gol-item">
+          <span class="ico-tarjeta ${x.tipo}" role="img" aria-label="${x.tipo === 'roja' ? 'Roja' : 'Amarilla'}"></span>
+          ${escudo(eqs.get(x.equipo_id), 22)}
+          <span class="n">${esc(x.jugador_nombre)}${x.minuto !== null && x.minuto !== undefined ? ` <small>${x.minuto}'</small>` : ''}</span>
+          ${fin ? '' : `<button class="btn-icono" data-accion="quitar-tarjeta" data-id="${x.id}" aria-label="Quitar tarjeta de ${esc(x.jugador_nombre)}">${ICONO.cerrar}</button>`}
+        </div>`).join('') : '<span class="ayuda">Sin tarjetas.</span>'}
+      ${fin ? '' : `
+      <div style="display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--borde);padding-top:10px">
+        <div class="segmento" role="group" aria-label="Tipo de tarjeta">
+          <button class="btn" data-accion="tarjeta-tipo" data-valor="amarilla" aria-pressed="${t.tipo === 'amarilla'}"><span class="ico-tarjeta amarilla" aria-hidden="true"></span>Amarilla</button>
+          <button class="btn" data-accion="tarjeta-tipo" data-valor="roja" aria-pressed="${t.tipo === 'roja'}"><span class="ico-tarjeta roja" aria-hidden="true"></span>Roja</button>
+        </div>
+        <div class="equipo-btns">
+          ${[L, V].map((e) => `<button class="btn" data-accion="tarjeta-equipo" data-id="${e.id}" aria-pressed="${t.equipo === e.id}">${escudo(e, 20)}<span>${esc(e.nombre)}</span></button>`).join('')}
+        </div>
+        <label class="campo">Jugador amonestado o expulsado
+          <input id="tarjeta-nombre" list="sugeridos-tarjeta" autocomplete="off" value="${esc(t.nombre)}" data-tarjeta="nombre" placeholder="Escribí el nombre">
+        </label>
+        <datalist id="sugeridos-tarjeta">${[...sugeridos].sort((a, b) => a.localeCompare(b, 'es')).map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>
+        <label class="campo">Minuto de la tarjeta (opcional)<input type="number" inputmode="numeric" min="0" max="200" data-tarjeta="minuto" value="${esc(t.minuto)}"></label>
+        <button class="btn secundario" data-accion="agregar-tarjeta">Agregar tarjeta</button>
+      </div>`}
+    </section>`;
+}
+
+function guardarFormTarjeta() {
+  const n = document.querySelector('[data-tarjeta="nombre"]');
+  const m = document.querySelector('[data-tarjeta="minuto"]');
+  if (n) estado.tarjeta.nombre = n.value;
+  if (m) estado.tarjeta.minuto = m.value;
+}
+
+async function agregarTarjeta() {
+  guardarFormTarjeta();
+  const p = partidoActual();
+  const t = estado.tarjeta;
+  const nombre = normalizarNombre(t.nombre);
+  if (!nombre) { aviso('Escribí el nombre del jugador.', 'error'); document.getElementById('tarjeta-nombre')?.focus(); return; }
+  const jug = D().jugadores.find((j) => j.equipo_id === t.equipo && j.nombre.trim().toLowerCase() === nombre.toLowerCase());
+  const minuto = t.minuto === '' || t.minuto === null ? null : Math.max(0, parseInt(t.minuto, 10) || 0);
+  const fila = { partido_id: p.id, equipo_id: t.equipo, jugador_id: jug ? jug.id : null, jugador_nombre: jug ? jug.nombre : nombre, tipo: t.tipo, minuto };
+  if (!D().tarjetas) almacen.D.tarjetas = [];
+  D().tarjetas.push({ ...fila, id: `tmp-${Date.now()}`, created_at: new Date().toISOString() });
+  estado.tarjeta = { ...t, nombre: '', minuto: '' };
+  render();
+  await guardar(() => db.insertar('tarjetas', [fila]), { ok: t.tipo === 'roja' ? 'Roja cargada' : 'Amarilla cargada' });
 }
 
 function partidoActual() {
   return D().partidos.find((x) => x.id === estado.partido);
 }
 
-async function agregarGol() {
+async function agregarGol({ sinIdentificar = false } = {}) {
   const p = partidoActual();
   const g = estado.gol;
   const input = document.getElementById('gol-nombre');
   if (input) g.nombre = input.value;
+  if (sinIdentificar) { g.nombre = SIN_IDENTIFICAR; g.enContra = false; }
   const nombre = normalizarNombre(g.nombre);
   if (!nombre) { aviso('Escribí el nombre del jugador.', 'error'); input && input.focus(); return; }
   const rival = g.equipo === p.local_id ? p.visitante_id : p.local_id;
@@ -369,33 +476,41 @@ async function agregarGol() {
   // En pantalla al instante
   p[`goles_${lado}`] = nuevo;
   estado.gol = { equipo: g.equipo, nombre: '', minuto: '', enContra: false };
-  estado.sugerirPlantel = !jug && !g.enContra ? { partido: p.id, equipo_id: deQuien, nombre } : null;
-  D().goles.push({ ...fila, id: `tmp-${Date.now()}`, created_at: new Date().toISOString() });
+  estado.sugerirPlantel = !jug && !g.enContra && !sinIdentificar ? { partido: p.id, equipo_id: deQuien, nombre } : null;
+  D().goles.push({ ...fila, id: `tmp-${Date.now()}`, created_at: new Date().toISOString(), cargado_por: estado.yo?.id });
   render();
-  await guardar(async () => {
-    await db.insertar('goles', [fila]);
-    await db.actualizar('partidos', p.id, { [`goles_${lado}`]: nuevo });
-  }, { ok: 'Gol cargado' });
+  // El marcador del partido lo recalcula la base a partir de los goles.
+  const r = await guardar(() => db.insertar('goles', [fila]), { ok: 'Gol cargado' });
+  if (!r) { await almacen.recargar(); render(); }
 }
 
 async function quitarGol(id) {
   const p = partidoActual();
-  const g = D().goles.find((x) => x.id === id);
+  let g = D().goles.find((x) => x.id === id);
   if (!g) return;
+  if (String(g.id).startsWith('tmp-')) {
+    // Recién cargado: todavía no tiene su id de la base. Se trae de nuevo y se busca el mismo gol.
+    const { partido_id: pid, equipo_id: eq, jugador_nombre: n } = g;
+    await almacen.recargar();
+    g = D().goles.filter((x) => x.partido_id === pid && x.equipo_id === eq && x.jugador_nombre === n)
+      .sort((a, c) => String(c.created_at).localeCompare(String(a.created_at)))[0];
+    if (!g) return;
+    id = g.id;
+  }
   const lado = g.equipo_id === p.local_id ? 'local' : 'visitante';
   const nuevo = Math.max(0, (Number(p[`goles_${lado}`]) || 0) - 1);
   p[`goles_${lado}`] = nuevo;
   almacen.D.goles = D().goles.filter((x) => x.id !== id);
   render();
-  await guardar(async () => {
-    await db.borrar('goles', [id]);
-    await db.actualizar('partidos', p.id, { [`goles_${lado}`]: nuevo });
-  });
+  const r = await guardar(() => db.borrar('goles', [id]), { ok: 'Gol quitado' });
+  if (!r) { await almacen.recargar(); render(); }
 }
 
 async function terminarPartido() {
   const p = partidoActual();
-  const empate = Number(p.goles_local) === Number(p.goles_visitante);
+  const gl = D().goles.filter((x) => x.partido_id === p.id && x.equipo_id === p.local_id).length;
+  const gv = D().goles.filter((x) => x.partido_id === p.id && x.equipo_id === p.visitante_id).length;
+  const empate = gl === gv;
   if (p.ronda !== 'todos' && empate) {
     if (!hayPenales(p) || Number(p.penales_local) === Number(p.penales_visitante)) {
       aviso('Empataron: cargá los penales (con un ganador) antes de terminar.', 'error', 4500);
@@ -403,23 +518,30 @@ async function terminarPartido() {
     }
   }
   const eqs = mapaEquipos(D());
-  const ok = await confirmar(`¿Terminar el partido ${nombreLado(p, 'local', eqs)} ${p.goles_local ?? 0} – ${p.goles_visitante ?? 0} ${nombreLado(p, 'visitante', eqs)}?`, { si: 'Terminar' });
+  const directo = p.estado === 'programado';
+  const marcador = `${nombreLado(p, 'local', eqs)} ${gl} – ${gv} ${nombreLado(p, 'visitante', eqs)}`;
+  const ok = directo
+    ? await confirmar(`¿Guardar el resultado ${marcador}? Va a aparecer en la web como terminado.`, { si: 'Guardar' })
+    : await confirmar(`¿Terminar el partido ${marcador}?`, { si: 'Terminar' });
   if (!ok) return;
-  const cambios = { estado: 'finalizado', goles_local: Number(p.goles_local) || 0, goles_visitante: Number(p.goles_visitante) || 0 };
-  if (!(p.ronda !== 'todos' && empate)) Object.assign(cambios, { penales_local: null, penales_visitante: null });
-  const r = await guardar(() => db.actualizar('partidos', p.id, cambios), { ok: 'Partido terminado' });
-  if (r && p.ronda !== 'todos') await avanzarCruces();
+  estado.directo = null;
+  const definidos = () => D().partidos.filter((x) => x.ronda !== 'todos').reduce((n, x) => n + (x.local_id ? 1 : 0) + (x.visitante_id ? 1 : 0), 0);
+  const antes = definidos();
+  const r = await guardar(() => db.cambiarEstado(p.id, 'finalizado'), { ok: directo ? 'Resultado guardado' : 'Partido terminado' });
+  // Los ganadores pasan solos al cruce siguiente (lo hace la base al terminar)
+  if (r && p.ronda !== 'todos' && definidos() > antes) aviso('Se actualizaron los cruces siguientes.', 'ok');
 }
 
-/** Pasa ganadores (y perdedores) a los cruces siguientes. */
-async function avanzarCruces() {
-  const cambios = resolverCruces(D().partidos);
-  if (!cambios.length) return;
-  const r = await guardar(async () => {
-    for (const { id, ...c } of cambios) await db.actualizar('partidos', id, c);
-  });
-  if (r) aviso('Se actualizaron los cruces siguientes.', 'ok');
+/** Cambia el estado del partido por la función de la base (respeta los permisos de cada rol). */
+async function cambiarEstado(nuevo, opciones) {
+  const p = partidoActual();
+  p.estado = nuevo;
+  render();
+  const r = await guardar(() => db.cambiarEstado(p.id, nuevo), opciones);
+  if (!r) { await almacen.recargar(); render(); }
+  return r;
 }
+
 
 // ═════════════════════════════════════════════════════════════
 // FIXTURE
@@ -877,7 +999,58 @@ function vistaFormato() {
     <section class="tarjeta pad">
       <a class="btn" href="../" target="_blank" rel="noopener">${ICONO.enlace}Ver la web pública</a>
       <button class="btn" data-accion="salir">${ICONO.salir}Cerrar sesión</button>
+    </section>
+
+    <section class="tarjeta pad" style="border:1px solid #e0b4b4">
+      <span style="font-weight:700;color:#b71c1c">Reiniciar el torneo</span>
+      <p class="ayuda">Borra todos los resultados: goles, tarjetas, partidos jugados y el playoff. Los equipos, sus planteles, escudos y números de sorteo quedan como están.</p>
+      <button class="btn peligro" data-accion="reiniciar-torneo">${ICONO.borrar}Reiniciar el torneo</button>
     </section>`;
+}
+
+/** Reiniciar con confirmación y cuenta regresiva de 5 segundos. */
+async function reiniciarTorneo() {
+  const d = document.createElement('dialog');
+  d.className = 'dialogo';
+  d.innerHTML = `<form method="dialog">
+      <h2>¿Seguro que querés borrar todos los resultados?</h2>
+      <div class="dialogo-cuerpo">
+        <p>Se borran <b>todos los goles, tarjetas y resultados</b>, y el playoff. Todos los partidos vuelven a "sin jugar". No se puede deshacer.</p>
+        <p class="ayuda">Los equipos, planteles, escudos y números de sorteo no se tocan.</p>
+        <label class="check"><input type="checkbox" name="fixture"> Borrar también el fixture (fechas, partidos y actividades) y volver al sorteo</label>
+      </div>
+      <div class="dialogo-botones">
+        <button class="btn secundario" value="no">Cancelar</button>
+        <button class="btn peligro lleno" value="si" data-borrar disabled>Esperá 5</button>
+      </div>
+    </form>`;
+  document.body.appendChild(d);
+  const btn = d.querySelector('[data-borrar]');
+  let falta = 5;
+  const timer = setInterval(() => {
+    falta -= 1;
+    if (falta > 0) { btn.textContent = `Esperá ${falta}`; return; }
+    clearInterval(timer);
+    btn.disabled = false;
+    btn.textContent = 'Sí, borrar todo';
+  }, 1000);
+  const elegido = await new Promise((ok) => {
+    let valor = 'no';
+    d.querySelector('form').addEventListener('submit', (e) => { valor = e.submitter ? e.submitter.value : 'no'; });
+    d.addEventListener('close', () => ok({ valor, fixture: d.querySelector('[name=fixture]').checked }));
+    d.showModal();
+  });
+  clearInterval(timer);
+  d.remove();
+  if (elegido.valor !== 'si') return;
+  const r = await guardar(() => db.reiniciar(elegido.fixture), { ok: elegido.fixture ? 'Torneo reiniciado: volvés al sorteo' : 'Torneo reiniciado: todos los partidos sin jugar' });
+  if (r) {
+    estado.fechaRes = null;
+    estado.fechaFix = null;
+    estado.partido = null;
+    estado.directo = null;
+    render();
+  }
 }
 
 function crucesTexto(c) {
@@ -976,22 +1149,56 @@ function placaPorTipo(tipo) {
 const acciones = {
   // Resultados
   'fecha-res': (b) => { estado.fechaRes = b.dataset.id; estado.partido = null; render(); },
-  'abrir-partido': (b) => { estado.partido = b.dataset.id; estado.sugerirPlantel = null; estado.gol = { equipo: null, nombre: '', minuto: '', enContra: false }; render(); scrollTo(0, 0); },
-  'cerrar-partido': () => { estado.partido = null; render(); },
+  'abrir-partido': (b) => {
+    estado.partido = b.dataset.id;
+    estado.sugerirPlantel = null;
+    estado.directo = null;
+    estado.gol = { equipo: null, nombre: '', minuto: '', enContra: false };
+    estado.tarjeta = { equipo: null, nombre: '', minuto: '', tipo: 'amarilla' };
+    render();
+    scrollTo(0, 0);
+  },
+  'cerrar-partido': () => { estado.partido = null; estado.directo = null; render(); },
+  'carga-directa': () => { estado.directo = estado.partido; render(); },
+  'tarjeta-tipo': (b) => { guardarFormTarjeta(); estado.tarjeta.tipo = b.dataset.valor; render(); },
+  'tarjeta-equipo': (b) => { guardarFormTarjeta(); estado.tarjeta.equipo = b.dataset.id; render(); document.getElementById('tarjeta-nombre')?.focus(); },
+  'agregar-tarjeta': () => agregarTarjeta(),
+  'quitar-tarjeta': async (b) => {
+    almacen.D.tarjetas = (D().tarjetas || []).filter((x) => x.id !== b.dataset.id);
+    render();
+    await guardar(() => db.borrar('tarjetas', [b.dataset.id]));
+  },
   empezar: () => {
     const p = partidoActual();
-    optimista('partidos', p.id, { estado: 'en_juego', goles_local: p.goles_local ?? 0, goles_visitante: p.goles_visitante ?? 0 });
+    cambiarEstado('en_juego');
   },
+  // "+": abre la carga del gol con ese equipo ya elegido
   sumar: (b) => {
     const p = partidoActual();
-    const k = `goles_${b.dataset.lado}`;
-    optimista('partidos', p.id, { [k]: (Number(p[k]) || 0) + 1 });
+    guardarFormGol();
+    estado.gol.equipo = p[`${b.dataset.lado}_id`];
+    estado.gol.enContra = false;
+    render();
+    const input = document.getElementById('gol-nombre');
+    if (input) { input.scrollIntoView({ block: 'center' }); input.focus(); }
   },
-  restar: (b) => {
+  // "−": quita el último gol de ese equipo, pidiendo confirmación
+  restar: async (b) => {
     const p = partidoActual();
-    const k = `goles_${b.dataset.lado}`;
-    optimista('partidos', p.id, { [k]: Math.max(0, (Number(p[k]) || 0) - 1) });
+    const eqId = p[`${b.dataset.lado}_id`];
+    const ultimoGol = () => D().goles.filter((g) => g.partido_id === p.id && g.equipo_id === eqId)
+      .sort((a, c) => String(c.created_at).localeCompare(String(a.created_at)))[0];
+    const ultimo = ultimoGol();
+    if (!ultimo) return;
+    const eq = mapaEquipos(D()).get(eqId);
+    const ok = await confirmar(`¿Quitar el último gol de ${eq ? eq.nombre : ''} (${ultimo.jugador_nombre}${ultimo.minuto != null ? `, ${ultimo.minuto}'` : ''})?`, { si: 'Quitar', peligro: true });
+    if (!ok) return;
+    // Mientras estaba abierta la confirmación pudieron llegar los datos de la base (el gol recién
+    // cargado pasa de su id provisorio al definitivo): se busca de nuevo el último gol.
+    const actual = ultimoGol();
+    if (actual) await quitarGol(actual.id);
   },
+  'gol-sin-identificar': () => { guardarFormGol(); agregarGol({ sinIdentificar: true }); },
   'gol-equipo': (b) => { guardarFormGol(); estado.gol.equipo = b.dataset.id; render(); document.getElementById('gol-nombre')?.focus(); },
   'agregar-gol': () => { guardarFormGol(); agregarGol(); },
   'quitar-gol': (b) => quitarGol(b.dataset.id),
@@ -1003,20 +1210,23 @@ const acciones = {
       // Vincular los goles que ya tenía cargados con ese nombre
       const j = D().jugadores.find((x) => x.equipo_id === s.equipo_id && x.nombre.toLowerCase() === s.nombre.toLowerCase());
       const sueltos = D().goles.filter((g) => !g.jugador_id && !g.en_contra && g.equipo_id === s.equipo_id && g.jugador_nombre.trim().toLowerCase() === s.nombre.toLowerCase());
-      if (j && sueltos.length) await guardar(async () => { for (const g of sueltos) await db.actualizar('goles', g.id, { jugador_id: j.id }); });
+      // El cargador solo puede tocar goles con el partido en juego
+      const p = partidoActual();
+      const puede = soyAdmin() || (p && p.estado === 'en_juego');
+      if (j && sueltos.length && puede) await guardar(async () => { for (const g of sueltos) await db.actualizar('goles', g.id, { jugador_id: j.id }); });
     }
     render();
   },
   terminar: () => terminarPartido(),
   corregir: async () => {
     const ok = await confirmar('El partido vuelve a "en juego" para corregir el marcador o los goles. ¿Seguimos?', { si: 'Corregir' });
-    if (ok) await optimista('partidos', partidoActual().id, { estado: 'en_juego' });
+    if (ok) await cambiarEstado('en_juego');
   },
   suspender: async () => {
     const ok = await confirmar('¿Suspender este partido? En la web va a aparecer como suspendido.', { si: 'Suspender', peligro: true });
-    if (ok) await optimista('partidos', partidoActual().id, { estado: 'suspendido' });
+    if (ok) await cambiarEstado('suspendido');
   },
-  'reprogramar-partido': () => optimista('partidos', partidoActual().id, { estado: 'programado' }),
+  'reprogramar-partido': () => cambiarEstado('programado'),
   'placa-partido': () => {
     const p = partidoActual();
     const eqs = mapaEquipos(D());
@@ -1099,13 +1309,42 @@ const acciones = {
     guardarConfig({ dias_juego: [...dias].sort((a, b2) => a - b2) });
   },
   'armar-playoff': () => armarElPlayoff(),
+  'reiniciar-torneo': () => reiniciarTorneo(),
   'deshacer-playoff': async () => {
     const ok = await confirmar('Se borran las fechas y los partidos del playoff. El formato se puede volver a cambiar. ¿Seguimos?', { si: 'Deshacer', peligro: true });
     if (ok) await guardar(() => db.borrar('fechas', D().fechas.filter((f) => f.fase === 'playoff').map((f) => f.id)), { ok: 'Playoff deshecho' });
   },
   salir: async () => {
     await db.salir();
-    location.reload();
+    location.replace(location.pathname);
+  },
+
+  // Usuarios
+  invitar: () => invitarUsuario(),
+  'reenviar-invitacion': async (b) => {
+    const u = (estado.usuarios || []).find((x) => x.user_id === b.dataset.id);
+    if (!u) return;
+    const r = await guardar(() => db.invitar({ email: u.email, nombre: u.nombre, rol: u.rol, redirectTo: urlCrearClave() }), { recargar: false });
+    if (r) aviso(`Le volvimos a mandar la invitación a ${u.email}.`, 'ok', 4000);
+    await cargarUsuarios();
+  },
+  'desactivar-usuario': async (b) => {
+    const u = (estado.usuarios || []).find((x) => x.user_id === b.dataset.id);
+    const ok = await confirmar(`¿Desactivar a ${u.nombre || u.email}? No va a poder cargar nada hasta que lo reactives.`, { si: 'Desactivar', peligro: true });
+    if (!ok) return;
+    if (await guardar(() => db.actualizarUsuario(u.user_id, { activo: false }), { recargar: false, ok: 'Usuario desactivado' })) await cargarUsuarios();
+  },
+  'reactivar-usuario': async (b) => {
+    if (await guardar(() => db.actualizarUsuario(b.dataset.id, { activo: true }), { recargar: false, ok: 'Usuario reactivado' })) await cargarUsuarios();
+  },
+  'cambiar-rol': async (b) => {
+    const u = (estado.usuarios || []).find((x) => x.user_id === b.dataset.id);
+    const nuevo = u.rol === 'admin' ? 'cargador' : 'admin';
+    const ok = await confirmar(nuevo === 'admin'
+      ? `¿Hacer admin a ${u.nombre || u.email}? Va a poder cambiar todo: fixture, equipos, formato y usuarios.`
+      : `¿Pasar a ${u.nombre || u.email} a cargador? Solo va a poder cargar resultados.`, { si: 'Cambiar' });
+    if (!ok) return;
+    if (await guardar(() => db.actualizarUsuario(u.user_id, { rol: nuevo }), { recargar: false, ok: 'Rol cambiado' })) await cargarUsuarios();
   },
 };
 
@@ -1135,6 +1374,7 @@ document.addEventListener('click', (e) => {
     estado.abierto = null;
     render();
     scrollTo(0, 0);
+    if (estado.vista === 'usuarios') cargarUsuarios();
     return;
   }
   const b = e.target.closest('[data-accion]');
@@ -1148,11 +1388,13 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   if (e.target.matches('[data-gol="nombre"], [data-gol="minuto"]')) { e.preventDefault(); guardarFormGol(); agregarGol(); }
   if (e.target.matches('[data-nuevo-jugador]')) { e.preventDefault(); acciones['agregar-jugador'](); }
+  if (e.target.matches('[data-tarjeta]')) { e.preventDefault(); agregarTarjeta(); }
 });
 
 document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.matches('[data-gol]')) guardarFormGol();
+  if (t.matches('[data-tarjeta]')) guardarFormTarjeta();
   if (t.matches('[data-nuevo-jugador]')) estado.nuevoJugador = t.value;
 });
 
@@ -1164,8 +1406,11 @@ document.addEventListener('change', async (e) => {
     return;
   }
   if (t.matches('[data-campo^="penales_"]')) {
+    const p = partidoActual();
     const v = t.value === '' ? null : Math.max(0, parseInt(t.value, 10) || 0);
-    optimista('partidos', partidoActual().id, { [t.dataset.campo]: v });
+    p[t.dataset.campo] = v;
+    if (p.penales_local == null || p.penales_visitante == null) return; // se guarda cuando están los dos
+    await guardar(() => db.penales(p.id, p.penales_local, p.penales_visitante));
     return;
   }
   if (t.matches('[data-item]')) {
@@ -1203,6 +1448,134 @@ document.addEventListener('change', async (e) => {
 });
 
 // ═════════════════════════════════════════════════════════════
+// USUARIOS (solo admin)
+// ═════════════════════════════════════════════════════════════
+
+async function cargarUsuarios() {
+  try {
+    estado.usuarios = await db.usuarios();
+    estado.nombres = Object.fromEntries(estado.usuarios.map((u) => [u.user_id, u.nombre]));
+  } catch (err) {
+    console.warn('[torneo]', err);
+    if (!estado.usuarios) estado.usuarios = [];
+    aviso(esErrorDeRed(err) ? 'Sin conexión. No se pudo traer la lista de usuarios.' : 'No se pudo traer la lista de usuarios.', 'error');
+  }
+  if (estado.vista === 'usuarios') render();
+}
+
+function vistaUsuarios() {
+  const lista = estado.usuarios;
+  const estadoDe = (u) => (!u.activo ? ['Desactivado', 'susp'] : u.invitado ? ['Invitado', 'reprog'] : ['Activo', 'fin']);
+  const filas = (lista || []).map((u) => {
+    const [txt, clase] = estadoDe(u);
+    const soyYo = estado.yo && u.user_id === estado.yo.id;
+    return `<div style="border-top:1px solid var(--borde);padding:12px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="txt" style="flex:1;min-width:0"><span style="font-weight:600">${esc(u.nombre || u.email)}${soyYo ? ' (vos)' : ''}</span>
+          <span class="sub" style="display:block;font-size:12px;color:var(--sec);overflow:hidden;text-overflow:ellipsis">${esc(u.email)}</span></span>
+        <span class="chip">${u.rol === 'admin' ? 'Admin' : 'Cargador'}</span>
+        <span class="chip ${clase}">${txt}</span>
+      </div>
+      ${soyYo ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${u.invitado && u.activo ? `<button class="btn" style="font-size:13px;min-height:40px" data-accion="reenviar-invitacion" data-id="${u.user_id}">Reenviar invitación</button>` : ''}
+        ${u.activo ? `<button class="btn" style="font-size:13px;min-height:40px" data-accion="cambiar-rol" data-id="${u.user_id}">${u.rol === 'admin' ? 'Pasar a cargador' : 'Hacer admin'}</button>` : ''}
+        ${u.activo
+          ? `<button class="btn peligro" style="font-size:13px;min-height:40px" data-accion="desactivar-usuario" data-id="${u.user_id}">Desactivar</button>`
+          : `<button class="btn" style="font-size:13px;min-height:40px" data-accion="reactivar-usuario" data-id="${u.user_id}">Reactivar</button>`}
+      </div>`}
+    </div>`;
+  }).join('');
+  return `
+    <button class="btn primario" data-accion="invitar">${ICONO.mas}Invitar</button>
+    <section class="tarjeta">
+      ${lista === null ? '<div class="cargando">Cargando…</div>' : (filas.replace('border-top:1px solid var(--borde);', '') || '<div class="vacio">Todavía no hay usuarios.</div>')}
+    </section>
+    <section class="tarjeta pad" style="gap:6px">
+      <span style="font-weight:700">Roles</span>
+      <p class="ayuda"><b>Admin</b>: todo (resultados, fixture, equipos, formato, usuarios y corregir partidos terminados).</p>
+      <p class="ayuda"><b>Cargador</b>: solo resultados: empezar, goles, tarjetas, penales y terminar. Puede agregar jugadores al plantel cuando carga un gol.</p>
+      <p class="ayuda">Cada persona entra con su propio mail y contraseña. Al invitar, le llega un mail con un link para elegir su contraseña.</p>
+    </section>`;
+}
+
+async function invitarUsuario() {
+  const r = await dialogo({
+    titulo: 'Invitar',
+    contenido: `<label class="campo">Mail<input type="email" name="email" required autocomplete="off" inputmode="email"></label>
+      <label class="campo">Nombre (se muestra en el panel)<input name="nombre" maxlength="60" autocomplete="off" placeholder="Juan"></label>
+      <label class="campo">Rol<select name="rol" class="entrada">
+        <option value="cargador">Cargador: solo resultados</option>
+        <option value="admin">Admin: todo</option>
+      </select></label>
+      <p class="ayuda">Le llega un mail con un link para elegir su contraseña.</p>`,
+    botones: [{ texto: 'Cancelar', valor: false, clase: 'secundario' }, { texto: 'Mandar invitación', valor: true, clase: 'primario' }],
+  });
+  if (!r.valor) return;
+  const email = String(r.datos.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { aviso('Ese mail no parece válido.', 'error'); return; }
+  aviso('Mandando la invitación…', 'info', 1500);
+  const res = await guardar(() => db.invitar({ email, nombre: normalizarNombre(r.datos.nombre), rol: r.datos.rol, redirectTo: urlCrearClave() }), { recargar: false });
+  if (res) {
+    aviso(res === 'actualizado' ? `${email} ya tenía usuario: quedó activo con el rol elegido.`
+      : res === 'reenviado' ? `Le volvimos a mandar la invitación a ${email}.`
+        : `Listo: le mandamos la invitación a ${email}.`, 'ok', 4500);
+  }
+  await cargarUsuarios();
+}
+
+// ═════════════════════════════════════════════════════════════
+// CONTRASEÑA: crear (al llegar desde el mail) y olvidé
+// ═════════════════════════════════════════════════════════════
+
+function pantallaCrearClave(error = '') {
+  app.innerHTML = `
+    <form class="login" id="crear-clave">
+      <img class="logo" src="../assets/logo-mitre-75.jpg" alt="Escudo C.D. Mitre 75 aniversario">
+      <h1>Elegí tu contraseña</h1>
+      <p class="ayuda" style="text-align:center">Con esta contraseña y tu mail vas a entrar al panel del torneo.</p>
+      <label class="campo">Contraseña nueva (mínimo 8 caracteres)<input type="password" name="clave" autocomplete="new-password" minlength="8" required></label>
+      <label class="campo">Repetila<input type="password" name="repetida" autocomplete="new-password" minlength="8" required></label>
+      ${error ? `<p class="error-txt" role="alert">${esc(error)}</p>` : ''}
+      <button class="btn grande primario" type="submit">Guardar y entrar</button>
+    </form>`;
+  document.getElementById('crear-clave').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const clave = String(fd.get('clave'));
+    if (clave.length < 8) { pantallaCrearClave('Tiene que tener al menos 8 caracteres.'); return; }
+    if (clave !== String(fd.get('repetida'))) { pantallaCrearClave('Las dos contraseñas no coinciden.'); return; }
+    const btn = e.target.querySelector('button[type=submit]');
+    btn.disabled = true;
+    btn.textContent = 'Guardando…';
+    try {
+      await db.actualizarClave(clave);
+    } catch (err) {
+      pantallaCrearClave(err.sinConexion ? 'Sin conexión. Probá de nuevo cuando tengas señal.' : (err.message || 'No se pudo guardar la contraseña.'));
+      return;
+    }
+    history.replaceState(null, '', location.pathname);
+    aviso('Listo: ya tenés tu contraseña.', 'ok');
+    await entrar();
+  });
+}
+
+async function olvideClave() {
+  const r = await dialogo({
+    titulo: 'Olvidé mi contraseña',
+    contenido: '<label class="campo">Tu mail<input type="email" name="email" required autocomplete="username" inputmode="email"></label><p class="ayuda">Te mandamos un link para elegir una contraseña nueva.</p>',
+    botones: [{ texto: 'Cancelar', valor: false, clase: 'secundario' }, { texto: 'Mandar link', valor: true, clase: 'primario' }],
+  });
+  const email = String(r.datos.email || '').trim();
+  if (!r.valor || !email) return;
+  try {
+    await db.recuperarClave(email, urlCrearClave());
+    aviso('Si ese mail tiene usuario, te llega un link para elegir una contraseña nueva. Revisá también la carpeta de spam.', 'ok', 6000);
+  } catch (err) {
+    aviso(err.sinConexion ? 'Sin conexión. Probá de nuevo cuando tengas señal.' : 'No se pudo mandar el link. Probá de nuevo.', 'error');
+  }
+}
+
+// ═════════════════════════════════════════════════════════════
 // INGRESO Y ARRANQUE
 // ═════════════════════════════════════════════════════════════
 
@@ -1216,8 +1589,10 @@ function pantallaIngreso(error = '') {
       <label class="campo">Contraseña<input type="password" name="clave" autocomplete="current-password" required></label>
       ${error ? `<p class="error-txt" role="alert">${esc(error)}</p>` : ''}
       <button class="btn grande primario" type="submit">Entrar</button>
+      <button class="btn" type="button" id="olvide" style="border:0;background:transparent;color:var(--azul)">Olvidé mi contraseña</button>
       <a href="../" class="ayuda" style="text-align:center">Ir a la web del torneo</a>
     </form>`;
+  document.getElementById('olvide').addEventListener('click', olvideClave);
   document.getElementById('login').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -1240,24 +1615,26 @@ function pantallaIngreso(error = '') {
 }
 
 async function entrar() {
-  let admin = false;
   try {
-    admin = await db.esAdmin();
+    estado.yo = await db.miUsuario();
   } catch (err) {
     if (esErrorDeRed(err)) {
       app.innerHTML = '<div class="login"><p>Sin conexión. Probá de nuevo cuando tengas señal.</p><button class="btn primario" onclick="location.reload()">Reintentar</button></div>';
       return;
     }
   }
-  if (!admin) {
-    app.innerHTML = `<div class="login"><h1>Panel del torneo</h1><p>Tu usuario no tiene permiso para cargar datos del torneo.</p><button class="btn" id="salir">Cerrar sesión</button></div>`;
-    document.getElementById('salir').onclick = async () => { await db.salir(); location.reload(); };
+  if (!estado.yo) {
+    app.innerHTML = `<div class="login"><h1>Panel del torneo</h1><p>Tu usuario no tiene permiso para cargar datos del torneo, o fue desactivado. Si creés que es un error, hablá con un admin.</p><button class="btn" id="salir">Cerrar sesión</button></div>`;
+    document.getElementById('salir').onclick = async () => { await db.salir(); location.replace(location.pathname); };
     return;
   }
+  // Entró por el link de la invitación y todavía no eligió contraseña: primero eso.
+  if (estado.yo.sinClave) { pantallaCrearClave(); return; }
+  try { estado.nombres = await db.nombresUsuarios(); } catch { estado.nombres = {}; }
   esqueleto();
   document.getElementById('contenido').innerHTML = '<div class="cargando">Cargando…</div>';
   protegerSalida(() => {
-    if (estado.partido) { estado.partido = null; render(); return true; }
+    if (estado.partido) { estado.partido = null; estado.directo = null; render(); return true; }
     if (estado.equipo) { estado.equipo = null; render(); return true; }
     if (estado.abierto) { estado.abierto = null; render(); return true; }
     if (estado.vista !== 'resultados') { estado.vista = 'resultados'; render(); scrollTo(0, 0); return true; }
@@ -1277,7 +1654,11 @@ async function entrar() {
 (async () => {
   db = await getDb();
   const u = await db.sesion();
-  if (u) await entrar();
+  if (LLEGO_PARA_CREAR_CLAVE && u) pantallaCrearClave();
+  else if (LLEGO_PARA_CREAR_CLAVE || LINK_VENCIDO) {
+    history.replaceState(null, '', location.pathname);
+    pantallaIngreso('El link del mail venció o ya se usó. Pedí que te reenvíen la invitación, o tocá "Olvidé mi contraseña".');
+  } else if (u) await entrar();
   else pantallaIngreso();
 })();
 

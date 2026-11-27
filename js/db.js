@@ -10,7 +10,7 @@
 //   suscribir(onCambio, onEstado) → función para cortar
 //   sesion() → usuario | null · ingresar(email, clave) · salir() · esAdmin()
 //
-// Tablas (nombre corto → tabla real con prefijo torneo_): equipos, jugadores, fechas, partidos, goles, actividades.
+// Tablas (nombre corto → tabla real con prefijo torneo_): equipos, jugadores, fechas, partidos, goles, actividades, tarjetas.
 
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 

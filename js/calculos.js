@@ -19,6 +19,10 @@ export const CONFIG_DEFECTO = {
   tercer_puesto: false,
 };
 
+/** Gol que suma al marcador pero no se sabe quién lo hizo: no cuenta para goleadores. */
+export const SIN_IDENTIFICAR = 'Sin identificar';
+export const esSinIdentificar = (g) => !g.jugador_id && String(g.jugador_nombre || '').trim().toLowerCase() === SIN_IDENTIFICAR.toLowerCase();
+
 export const NOMBRE_DESEMPATE = {
   puntos: 'Puntos',
   diferencia: 'Diferencia de gol',
@@ -183,7 +187,7 @@ export function calcularGoleadores(D) {
   const jugadores = new Map((D.jugadores || []).map((j) => [j.id, j]));
   const grupos = new Map();
   for (const g of D.goles || []) {
-    if (g.en_contra) continue;
+    if (g.en_contra || esSinIdentificar(g)) continue;
     const p = partidos.get(g.partido_id);
     if (!p || !estados.has(p.estado)) continue;
     const key = g.jugador_id ? `id:${g.jugador_id}` : `n:${String(g.jugador_nombre || '').trim().toLowerCase()}|${g.equipo_id}`;

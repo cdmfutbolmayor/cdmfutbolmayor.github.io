@@ -348,6 +348,8 @@ img.escudo { border: 1px solid var(--borde); }
 .cab-fecha .selector-fecha { background: transparent; }
 .cab-fecha .selector-fecha .dia { color: #bdbdbd; }
 .cab-fecha .btn-icono { color: #fff; }
+/* Modo corrección: aviso fijo dentro de la cabecera */
+.cab-aviso { flex: 1 0 100%; margin: 0 -16px -12px; padding: 10px 16px; background: #f5b800; color: #1a1a1a; font-size: 14px; font-weight: 600; line-height: 1.3; }
 .tarjeta-cab.seccion { font-size: 12px; }
 .partido-btn { display: block; width: 100%; border: 0; border-top: 1px solid var(--borde); background: #fff; text-align: left; color: inherit; font: inherit; cursor: pointer; min-height: 52px; }
 .tarjeta-cab + .partido-btn { border-top: 0; }

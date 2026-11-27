@@ -4,7 +4,7 @@ import { iniciarDatos } from './datos.js';
 import {
   cfg, calcularTabla, calcularGoleadores, fechasOrdenadas, fechaEnCurso, esReprogramado, libresDeFecha, SIN_IDENTIFICAR,
   armarCruces, resolverCruces, hayPlayoff, primeraFaseTerminada, ganadorPartido, NOMBRE_DESEMPATE, NOMBRE_RONDA,
-  nombreCruce, tieneResultado, CONFIG_DEFECTO,
+  nombreCruce, tieneResultado, CONFIG_DEFECTO, parsearOrigen,
 } from './calculos.js';
 import {
   armarFixture, armarPlayoff, moverFecha, puedeRegenerarFixture, itemsDeFecha, estadoSorteo, plantillaFixture, diasDeJuego,
@@ -44,6 +44,7 @@ const estado = {
   fechaRes: null,
   partido: null,
   directo: null, // partido en carga directa
+  correccion: null, // { id, foto }: partido terminado que el admin está corrigiendo (sigue "finalizado")
   // Fixture
   fechaFix: null,
   abierto: null,
@@ -143,6 +144,7 @@ function esqueleto() {
         <a class="ver-web" href="../" target="_blank" rel="noopener">${ICONO.enlace}Ver la web pública</a>
       </div>
       <div id="cab-fecha" class="cab-fecha" hidden></div>
+      <div id="cab-aviso" class="cab-aviso" role="status" hidden></div>
     </header>
     ${MODO === 'demo' ? '<div class="banda prueba">Modo de prueba: los datos quedan guardados solo en este navegador.</div>' : ''}
     <main class="contenido" id="contenido"></main>
@@ -189,6 +191,10 @@ function pintarCabecera() {
   const cf = document.getElementById('cab-fecha');
   cf.hidden = !fechaLista;
   cf.innerHTML = fechaLista ? selectorFecha(D(), fechaLista) : '';
+  const av = document.getElementById('cab-aviso');
+  const corr = estado.vista === 'resultados' && corrigiendo(partidoActual());
+  av.hidden = !corr;
+  av.textContent = corr ? 'Estás corrigiendo un partido terminado. En la web sigue como Final.' : '';
   const cx = document.getElementById('conexion');
   cx.className = `conexion ${estado.conectado ? 'ok' : 'no'}`;
   cx.textContent = estado.conectado ? 'Conectado' : 'Sin conexión';
@@ -375,7 +381,8 @@ function vistaCarga(p) {
   const L = eqs.get(p.local_id);
   const V = eqs.get(p.visitante_id);
   const titulo = p.ronda === 'todos' ? `${tituloFecha(f)} · ${fechaLarga(p.dia)} · ${hora(p.hora)}` : `${nombreCruce(p.ronda, p.llave)} · ${fechaLarga(p.dia)} · ${hora(p.hora)}`;
-  const volver = `<button class="volver" data-accion="cerrar-partido">‹ Partidos de la fecha</button>`;
+  const corr = corrigiendo(p);
+  const volver = `<button class="volver" data-accion="${corr ? 'listo-correccion' : 'cerrar-partido'}">‹ Partidos de la fecha</button>`;
 
   if (!L || !V) {
     return `${volver}<div class="tarjeta pad"><span style="font-weight:700">${esc(titulo)}</span>
@@ -405,7 +412,8 @@ function vistaCarga(p) {
       </section>`;
   }
 
-  const fin = p.estado === 'finalizado';
+  // En el modo corrección el partido sigue "finalizado", pero se puede editar todo.
+  const fin = p.estado === 'finalizado' && !corr;
   const goles = D().goles.filter((g) => g.partido_id === p.id).sort((a, b) => (a.minuto ?? 999) - (b.minuto ?? 999) || String(a.created_at).localeCompare(String(b.created_at)));
   // El marcador sale de los goles: "+" agrega un gol de ese equipo y "−" quita el último.
   const golesDe = (eq) => goles.filter((x) => x.equipo_id === eq.id).length;
@@ -426,7 +434,7 @@ function vistaCarga(p) {
   return `${volver}
     <section class="tarjeta pad" style="gap:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        ${fin ? '<span class="chip fin">Terminado</span>' : directo ? '<span class="chip">Carga del resultado</span>' : '<span class="estado-vivo">EN JUEGO</span>'}
+        ${p.estado === 'finalizado' ? `<span class="chip fin">${corr ? 'Terminado · corrigiendo' : 'Terminado'}</span>` : directo ? '<span class="chip">Carga del resultado</span>' : '<span class="estado-vivo">EN JUEGO</span>'}
         <span class="ayuda" style="text-align:right">${esc(titulo)}</span>
       </div>
       <div class="marcador-adm">${lado('local', L)}${lado('visitante', V)}</div>
@@ -464,12 +472,14 @@ function vistaCarga(p) {
     ${seccionTarjetas(p, L, V, fin)}
 
     <div style="display:flex;flex-direction:column;gap:8px">
-      ${fin
-        ? (soyAdmin() ? '<button class="btn grande" data-accion="corregir">Corregir resultado</button>' : '<p class="ayuda" style="text-align:center">Para corregir un partido terminado, avisale a un admin.</p>')
+      ${corr
+        ? '<button class="btn grande primario" data-accion="listo-correccion">Listo</button>'
+        : fin
+        ? (soyAdmin() ? `<button class="btn grande" data-accion="corregir">${LAPIZ}Corregir resultado</button>` : '<p class="ayuda" style="text-align:center">Para corregir un partido terminado, avisale a un admin.</p>')
         : `<button class="btn grande primario" data-accion="terminar">${directo ? 'Guardar resultado' : 'Terminar partido'}</button>`}
       ${directo ? '' : `<button class="btn grande" data-accion="placa-partido">${ICONO.compartir}Compartir placa del resultado</button>`}
-      ${fin || directo ? '' : '<button class="btn peligro" data-accion="suspender">Suspender partido</button>'}
-      ${soyAdmin() && (fin || p.estado === 'en_juego' || (directo && tieneCargaDirecta(p)))
+      ${p.estado === 'finalizado' || directo ? '' : '<button class="btn peligro" data-accion="suspender">Suspender partido</button>'}
+      ${soyAdmin() && (p.estado === 'finalizado' || p.estado === 'en_juego' || (directo && tieneCargaDirecta(p)))
         ? `<button class="btn peligro" data-accion="borrar-resultado">${ICONO.borrar}Borrar resultado</button>
            <p class="ayuda" style="text-align:center">Borra goles, tarjetas y marcador: el partido queda como si no se hubiera jugado.</p>`
         : ''}
@@ -682,6 +692,82 @@ async function terminarPartido() {
   const r = await guardar(() => db.cambiarEstado(p.id, 'finalizado'), { ok: directo ? 'Resultado guardado' : 'Partido terminado' });
   // Los ganadores pasan solos al cruce siguiente (lo hace la base al terminar)
   if (r && p.ronda !== 'todos' && definidos() > antes) aviso('Se actualizaron los cruces siguientes.', 'ok');
+}
+
+// ── Modo corrección (solo admin): el partido sigue "finalizado" ──
+
+/** ¿El admin está corrigiendo este partido terminado? */
+function corrigiendo(p) {
+  return !!p && p.estado === 'finalizado' && soyAdmin() && estado.correccion?.id === p.id;
+}
+
+/** Lo cargado en el partido, para saber al final si se cambió algo. */
+function fotoPartido(p) {
+  const goles = D().goles.filter((x) => x.partido_id === p.id)
+    .map((x) => JSON.stringify([x.equipo_id, x.jugador_id || null, x.jugador_nombre, !!x.en_contra, x.minuto ?? null])).sort();
+  const tarjetas = (D().tarjetas || []).filter((x) => x.partido_id === p.id)
+    .map((x) => JSON.stringify([x.equipo_id, x.tipo, x.jugador_id || null, x.jugador_nombre, x.minuto ?? null])).sort();
+  return JSON.stringify([goles, tarjetas, p.penales_local ?? null, p.penales_visitante ?? null]);
+}
+
+function empezarCorreccion(p) {
+  estado.correccion = { id: p.id, foto: fotoPartido(p) };
+}
+
+/** Cruces siguientes donde ya está el equipo que pasó y que con la corrección cambiaría. */
+function crucesQueCambian(p, gl, gv) {
+  const r = ganadorPartido({ ...p, estado: 'finalizado', goles_local: gl, goles_visitante: gv });
+  if (!r) return [];
+  const res = [];
+  for (const x of D().partidos) {
+    if (x.ronda === 'todos') continue;
+    for (const lado of ['local', 'visitante']) {
+      const o = parsearOrigen(x[`${lado}_origen`]);
+      if (!o || o.tipo === 'posicion' || o.ronda !== p.ronda || Number(o.llave) !== Number(p.llave)) continue;
+      const ahora = o.tipo === 'ganador' ? r.ganador : r.perdedor;
+      const antes = x[`${lado}_id`];
+      if (antes && antes !== ahora) res.push({ partido: x, antes, ahora });
+    }
+  }
+  return res;
+}
+
+/** "Listo": guarda la corrección (el partido sigue terminado) y vuelve a la lista. */
+async function terminarCorreccion() {
+  let p = partidoActual();
+  const salir = () => { estado.correccion = null; estado.partido = null; render(); scrollTo(0, 0); };
+  if (!corrigiendo(p) || fotoPartido(p) === estado.correccion.foto) { salir(); return; }
+  // Datos frescos: el cruce siguiente pudo empezar en otro celular hace un momento.
+  if (p.ronda !== 'todos') {
+    try { await almacen.recargar(); } catch (e) { if (!esErrorDeRed(e)) console.warn('[torneo]', e); }
+    p = partidoActual();
+    if (!corrigiendo(p)) { salir(); return; }
+  }
+  const gl =D().goles.filter((x) => x.partido_id === p.id && x.equipo_id === p.local_id).length;
+  const gv = D().goles.filter((x) => x.partido_id === p.id && x.equipo_id === p.visitante_id).length;
+  if (p.ronda !== 'todos') {
+    if (gl === gv && (!hayPenales(p) || Number(p.penales_local) === Number(p.penales_visitante))) {
+      aviso('Quedaron empatados: cargá los penales (con un ganador) para terminar la corrección.', 'error', 4500);
+      return;
+    }
+    const cambios = crucesQueCambian(p, gl, gv);
+    if (cambios.length) {
+      const eqs = mapaEquipos(D());
+      const nombre = (id) => eqs.get(id)?.nombre || '';
+      const jugados = cambios.filter((c) => c.partido.estado !== 'programado');
+      if (jugados.length) {
+        aviso(`Con la corrección cambia quién pasó, pero ${nombreCruce(jugados[0].partido.ronda, jugados[0].partido.llave)} ya se empezó a jugar. Dejá el resultado como estaba, o primero borrá el resultado de ese partido.`, 'error', 7000);
+        return;
+      }
+      const lista = cambios.map((c) => `en ${nombreCruce(c.partido.ronda, c.partido.llave)} va ${nombre(c.ahora)} en lugar de ${nombre(c.antes)}`).join(', y ');
+      const ok = await confirmar(`Con la corrección cambia quién pasó: ${lista}. ¿Actualizamos el cruce siguiente?`, { si: 'Actualizar el cruce' });
+      if (!ok) return;
+    }
+  }
+  // Vuelve a confirmarlo como terminado: recalcula el marcador, registra quién corrigió y,
+  // en el playoff, actualiza el cruce siguiente. El estado no cambia.
+  const r = await guardar(() => db.cambiarEstado(p.id, 'finalizado'), { ok: 'Corrección guardada' });
+  if (r) salir();
 }
 
 /** Cambia el estado del partido por la función de la base (respeta los permisos de cada rol). */
@@ -1303,6 +1389,10 @@ const acciones = {
   'abrir-partido': (b) => {
     estado.partido = b.dataset.id;
     estado.directo = null;
+    estado.correccion = null;
+    // El admin entra a un partido terminado directo en modo corrección ("Corregir" en la lista)
+    const p = partidoActual();
+    if (p && p.estado === 'finalizado' && soyAdmin() && p.local_id && p.visitante_id) empezarCorreccion(p);
     render();
     scrollTo(0, 0);
   },
@@ -1311,7 +1401,8 @@ const acciones = {
     acciones['abrir-partido'](b);
     await cambiarEstado('en_juego');
   },
-  'cerrar-partido': () => { estado.partido = null; estado.directo = null; render(); },
+  'cerrar-partido': () => { estado.partido = null; estado.directo = null; estado.correccion = null; render(); },
+  'listo-correccion': () => terminarCorreccion(),
   'carga-directa': () => { estado.directo = estado.partido; render(); },
   'gol-equipo': (b) => nuevoGol(b.dataset.id),
   'editar-gol': (b) => editarGol(b.dataset.id),
@@ -1340,10 +1431,8 @@ const acciones = {
     if (actual) await quitarGol(actual.id);
   },
   terminar: () => terminarPartido(),
-  corregir: async () => {
-    const ok = await confirmar('El partido vuelve a "en juego" para corregir el marcador o los goles. ¿Seguimos?', { si: 'Corregir' });
-    if (ok) await cambiarEstado('en_juego');
-  },
+  // Modo corrección: el partido sigue terminado (en la web, "Final")
+  corregir: () => { empezarCorreccion(partidoActual()); render(); },
   suspender: async () => {
     const ok = await confirmar('¿Suspender este partido? En la web va a aparecer como suspendido.', { si: 'Suspender', peligro: true });
     if (ok) await cambiarEstado('suspendido');
@@ -1357,6 +1446,7 @@ const acciones = {
     const r = await guardar(() => db.borrarResultado(p.id), { ok: 'Resultado borrado: el partido queda sin jugar' });
     if (r) {
       estado.directo = null;
+      estado.correccion = null;
       render();
     }
   },

@@ -6,7 +6,6 @@ import {
 import { itemsDeFecha } from './fixture.js';
 import { fechaLarga, fechaLargaMin, hora, inicial, textoSobre, toISO } from './util.js';
 import { golesPorLado, hayPenales, mapaEquipos, nombreLado } from './ui.js';
-import { SITIO } from './config.js';
 
 const W = 1080;
 const H = 1350;
@@ -131,8 +130,7 @@ async function base(D, titulo, pie) {
 
   // Pie
   const prox = pie === undefined ? textoProxima(D) : pie;
-  if (prox) texto(ctx, prox, 64, 1290, { tam: 28, peso: 500, color: CLARO, maxW: 520 });
-  texto(ctx, SITIO, W - 64, 1290, { tam: 28, peso: 700, color: '#fff', align: 'right', maxW: 440 });
+  if (prox) texto(ctx, prox, 64, 1290, { tam: 28, peso: 500, color: CLARO, maxW: W - 128 });
   return { cv, ctx };
 }
 

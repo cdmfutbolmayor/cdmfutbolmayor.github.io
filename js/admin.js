@@ -11,6 +11,7 @@ import {
 } from './fixture.js';
 import { esc, plural, fechaLarga, fechaCorta, hora, esFeriadoEspecial, normalizarNombre, ordinal, parseISO } from './util.js';
 import { protegerSalida } from './salida.js';
+import { elegirJugador } from './elegir-jugador.js';
 import {
   ICONO, escudo, mapaEquipos, nombreLado, aviso, dialogo, confirmar, hayPenales, lineaPartido, extrasPartido, filaActividad,
   libresHTML, selectorFecha,
@@ -42,10 +43,7 @@ const estado = {
   // Resultados
   fechaRes: null,
   partido: null,
-  gol: { equipo: null, nombre: '', minuto: '', enContra: false },
-  tarjeta: { equipo: null, nombre: '', minuto: '', tipo: 'amarilla' },
   directo: null, // partido en carga directa
-  sugerirPlantel: null, // { equipo_id, nombre }
   // Fixture
   fechaFix: null,
   abierto: null,
@@ -422,15 +420,8 @@ function vistaCarga(p) {
       </div>
     </div>`;
 
-  const g = estado.gol;
-  if (!g.equipo || (g.equipo !== p.local_id && g.equipo !== p.visitante_id)) g.equipo = p.local_id;
-  const rival = g.equipo === p.local_id ? p.visitante_id : p.local_id;
-  const deQuien = g.enContra ? rival : g.equipo;
-  const sugeridos = new Set(D().jugadores.filter((j) => j.equipo_id === deQuien && j.activo !== false).map((j) => j.nombre));
-  if (!g.enContra) D().goles.filter((x) => x.equipo_id === deQuien && !x.en_contra).forEach((x) => sugeridos.add(x.jugador_nombre));
   const empatado = Number(p.goles_local ?? 0) === Number(p.goles_visitante ?? 0);
   const penales = p.ronda !== 'todos' && empatado;
-  const sug = !fin && estado.sugerirPlantel && estado.sugerirPlantel.partido === p.id ? estado.sugerirPlantel : null;
 
   return `${volver}
     <section class="tarjeta pad" style="gap:14px">
@@ -455,32 +446,18 @@ function vistaCarga(p) {
       ${goles.length ? goles.map((x) => {
         const eq = eqs.get(x.equipo_id);
         const quien = nombreDe(x.cargado_por);
-        return `<div class="gol-item">${escudo(eq, 22)}<span class="n">${esc(x.jugador_nombre)}${x.en_contra ? ' <small>(en contra)</small>' : ''}${x.minuto !== null && x.minuto !== undefined ? ` <small>${x.minuto}'</small>` : ''}${quien ? `<small style="display:block">Cargó ${esc(quien)}</small>` : ''}</span>
-          ${fin ? '' : `<button class="btn-icono" data-accion="quitar-gol" data-id="${x.id}" aria-label="Quitar gol de ${esc(x.jugador_nombre)}">${ICONO.cerrar}</button>`}</div>`;
+        const cuerpo = `${escudo(eq, 22)}<span class="n">${esc(x.jugador_nombre)}${x.en_contra ? ' <small>(en contra)</small>' : ''}${x.minuto !== null && x.minuto !== undefined ? ` <small>${x.minuto}'</small>` : ''}${quien ? `<small style="display:block">Cargó ${esc(quien)}</small>` : ''}</span>`;
+        return fin
+          ? `<div class="gol-item">${cuerpo}</div>`
+          : `<button class="gol-item editable" data-accion="editar-gol" data-id="${x.id}" aria-label="Editar gol de ${esc(x.jugador_nombre)}">${cuerpo}<span class="editar">${LAPIZ}</span></button>`;
       }).join('') : '<span class="ayuda">Todavía no hay goles cargados.</span>'}
-      ${sug ? `<div class="alerta info" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span style="flex:1;min-width:180px">${esc(sug.nombre)} no está en el plantel de ${esc(eqs.get(sug.equipo_id)?.nombre || '')}.</span>
-          <button class="btn secundario" data-accion="agregar-al-plantel">Agregar al plantel</button>
-        </div>` : ''}
       ${fin ? '' : `
       <div style="display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--borde);padding-top:10px">
         <span class="ayuda">¿Para quién es el gol?</span>
         <div class="equipo-btns">
-          ${[L, V].map((e) => `<button class="btn" data-accion="gol-equipo" data-id="${e.id}" aria-pressed="${g.equipo === e.id}">${escudo(e, 20)}<span>${esc(e.nombre)}</span></button>`).join('')}
+          ${[L, V].map((e) => `<button class="btn" data-accion="gol-equipo" data-id="${e.id}">${escudo(e, 20)}<span>${esc(e.nombre)}</span></button>`).join('')}
         </div>
-        <label class="campo">${g.enContra ? `Jugador de ${esc(eqs.get(rival)?.nombre || '')} que lo hizo en contra` : 'Jugador'}
-          <input id="gol-nombre" list="sugeridos" autocomplete="off" value="${esc(g.nombre)}" data-gol="nombre" placeholder="Escribí el nombre">
-        </label>
-        <datalist id="sugeridos">${[...sugeridos].sort((a, b) => a.localeCompare(b, 'es')).map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>
-        <div class="dos" style="align-items:end">
-          <label class="campo">Minuto (opcional)<input type="number" inputmode="numeric" min="0" max="200" data-gol="minuto" value="${esc(g.minuto)}"></label>
-          <label class="check"><input type="checkbox" data-gol="enContra" ${g.enContra ? 'checked' : ''}> En contra</label>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn secundario" style="flex:1" data-accion="agregar-gol">Agregar gol</button>
-          <button class="btn" data-accion="gol-sin-identificar" style="font-size:13px">Gol sin identificar</button>
-        </div>
-        <p class="ayuda">Si no sabés quién lo hizo, usá "Gol sin identificar": suma al marcador y después se puede corregir.</p>
+        <p class="ayuda">Tocá un gol cargado para cambiarle el jugador, el minuto o el equipo.</p>
       </div>`}
     </section>
 
@@ -510,105 +487,168 @@ function seccionTarjetas(p, L, V, fin) {
   const eqs = mapaEquipos(D());
   const lista = (D().tarjetas || []).filter((t) => t.partido_id === p.id)
     .sort((a, b) => (a.minuto ?? 999) - (b.minuto ?? 999) || String(a.created_at).localeCompare(String(b.created_at)));
-  const t = estado.tarjeta;
-  if (!t.equipo || (t.equipo !== p.local_id && t.equipo !== p.visitante_id)) t.equipo = p.local_id;
-  const sugeridos = new Set(D().jugadores.filter((j) => j.equipo_id === t.equipo && j.activo !== false).map((j) => j.nombre));
-  D().goles.filter((g) => g.equipo_id === t.equipo && !g.en_contra).forEach((g) => sugeridos.add(g.jugador_nombre));
-  (D().tarjetas || []).filter((x) => x.equipo_id === t.equipo).forEach((x) => sugeridos.add(x.jugador_nombre));
   return `
     <section class="tarjeta pad" style="gap:10px">
       <span style="font-weight:700">Tarjetas</span>
-      ${lista.length ? lista.map((x) => `<div class="gol-item">
-          <span class="ico-tarjeta ${x.tipo}" role="img" aria-label="${x.tipo === 'roja' ? 'Roja' : 'Amarilla'}"></span>
+      ${lista.length ? lista.map((x) => {
+        const cuerpo = `<span class="ico-tarjeta ${x.tipo}" role="img" aria-label="${x.tipo === 'roja' ? 'Roja' : 'Amarilla'}"></span>
           ${escudo(eqs.get(x.equipo_id), 22)}
-          <span class="n">${esc(x.jugador_nombre)}${x.minuto !== null && x.minuto !== undefined ? ` <small>${x.minuto}'</small>` : ''}</span>
-          ${fin ? '' : `<button class="btn-icono" data-accion="quitar-tarjeta" data-id="${x.id}" aria-label="Quitar tarjeta de ${esc(x.jugador_nombre)}">${ICONO.cerrar}</button>`}
-        </div>`).join('') : '<span class="ayuda">Sin tarjetas.</span>'}
+          <span class="n">${esc(x.jugador_nombre)}${x.minuto !== null && x.minuto !== undefined ? ` <small>${x.minuto}'</small>` : ''}</span>`;
+        return fin
+          ? `<div class="gol-item">${cuerpo}</div>`
+          : `<button class="gol-item editable" data-accion="editar-tarjeta" data-id="${x.id}" aria-label="Editar ${x.tipo} de ${esc(x.jugador_nombre)}">${cuerpo}<span class="editar">${LAPIZ}</span></button>`;
+      }).join('') : '<span class="ayuda">Sin tarjetas.</span>'}
       ${fin ? '' : `
-      <div style="display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--borde);padding-top:10px">
-        <div class="segmento" role="group" aria-label="Tipo de tarjeta">
-          <button class="btn" data-accion="tarjeta-tipo" data-valor="amarilla" aria-pressed="${t.tipo === 'amarilla'}"><span class="ico-tarjeta amarilla" aria-hidden="true"></span>Amarilla</button>
-          <button class="btn" data-accion="tarjeta-tipo" data-valor="roja" aria-pressed="${t.tipo === 'roja'}"><span class="ico-tarjeta roja" aria-hidden="true"></span>Roja</button>
-        </div>
-        <div class="equipo-btns">
-          ${[L, V].map((e) => `<button class="btn" data-accion="tarjeta-equipo" data-id="${e.id}" aria-pressed="${t.equipo === e.id}">${escudo(e, 20)}<span>${esc(e.nombre)}</span></button>`).join('')}
-        </div>
-        <label class="campo">Jugador amonestado o expulsado
-          <input id="tarjeta-nombre" list="sugeridos-tarjeta" autocomplete="off" value="${esc(t.nombre)}" data-tarjeta="nombre" placeholder="Escribí el nombre">
-        </label>
-        <datalist id="sugeridos-tarjeta">${[...sugeridos].sort((a, b) => a.localeCompare(b, 'es')).map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>
-        <label class="campo">Minuto de la tarjeta (opcional)<input type="number" inputmode="numeric" min="0" max="200" data-tarjeta="minuto" value="${esc(t.minuto)}"></label>
-        <button class="btn secundario" data-accion="agregar-tarjeta">Agregar tarjeta</button>
+      <div class="tarjetas-equipos">
+        ${[L, V].map((e) => `<div class="tarjeta-eq">
+          <span class="eq">${escudo(e, 20)}<span>${esc(e.nombre)}</span></span>
+          <button class="btn" data-accion="nueva-tarjeta" data-equipo="${e.id}" data-tipo="amarilla" aria-label="Amarilla para ${esc(e.nombre)}"><span class="ico-tarjeta amarilla" aria-hidden="true"></span>Amarilla</button>
+          <button class="btn" data-accion="nueva-tarjeta" data-equipo="${e.id}" data-tipo="roja" aria-label="Roja para ${esc(e.nombre)}"><span class="ico-tarjeta roja" aria-hidden="true"></span>Roja</button>
+        </div>`).join('')}
       </div>`}
     </section>`;
 }
 
-function guardarFormTarjeta() {
-  const n = document.querySelector('[data-tarjeta="nombre"]');
-  const m = document.querySelector('[data-tarjeta="minuto"]');
-  if (n) estado.tarjeta.nombre = n.value;
-  if (m) estado.tarjeta.minuto = m.value;
+// ── Elegir jugador (ventana) y editar sin borrar ──────────
+
+const mismoNombre = (a, b) => normalizarNombre(a).toLowerCase() === normalizarNombre(b).toLowerCase();
+
+/** Lo que el jugador ya tiene en el torneo: "2 goles", "1 amarilla". */
+function datoJugador(tipo, j) {
+  const suyo = (x) => (x.jugador_id ? x.jugador_id === j.id : x.equipo_id === j.equipo_id && mismoNombre(x.jugador_nombre, j.nombre));
+  if (tipo === 'gol') {
+    const n = D().goles.filter((g) => !g.en_contra && suyo(g)).length;
+    return n ? plural(n, 'gol', 'goles') : '';
+  }
+  const n = (D().tarjetas || []).filter((t) => t.tipo === tipo && suyo(t)).length;
+  return n ? plural(n, tipo, `${tipo}s`) : '';
 }
 
-async function agregarTarjeta() {
-  guardarFormTarjeta();
+function plantelPara(tipo) {
+  return (equipoId) => D().jugadores
+    .filter((j) => j.equipo_id === equipoId && j.activo !== false)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+    .map((j) => ({ id: j.id, nombre: j.nombre, dato: datoJugador(tipo, j) }));
+}
+
+function ventanaJugador(p, opciones) {
+  const eqs = mapaEquipos(D());
+  return elegirJugador({ equipos: [eqs.get(p.local_id), eqs.get(p.visitante_id)], jugadores: plantelPara(opciones.tipo), ...opciones });
+}
+
+/** Del resultado de la ventana a jugador_id / jugador_nombre (y lo suma al plantel si se pidió). */
+async function jugadorElegido(p, r) {
+  if (r.sinIdentificar) return { jugador_id: null, jugador_nombre: SIN_IDENTIFICAR };
+  const rival = r.equipoId === p.local_id ? p.visitante_id : p.local_id;
+  const deQuien = r.enContra ? rival : r.equipoId;
+  const buscar = () => (r.jugadorId ? D().jugadores.find((j) => j.id === r.jugadorId) : null)
+    || D().jugadores.find((j) => j.equipo_id === deQuien && mismoNombre(j.nombre, r.nombre));
+  const nombre = normalizarNombre(r.nombre);
+  let j = buscar();
+  if (!j && r.agregarAlPlantel) {
+    await agregarJugadores(deQuien, [nombre]);
+    j = buscar();
+  }
+  return { jugador_id: j ? j.id : null, jugador_nombre: j ? j.nombre : nombre };
+}
+
+/** Un gol o tarjeta recién cargado todavía tiene id provisorio: se trae de la base y se busca el mismo. */
+async function idReal(tabla, fila) {
+  if (!String(fila.id).startsWith('tmp-')) return fila.id;
+  const { partido_id: pid, equipo_id: eq, jugador_nombre: n } = fila;
+  await almacen.recargar();
+  const x = (D()[tabla] || []).filter((y) => y.partido_id === pid && y.equipo_id === eq && y.jugador_nombre === n)
+    .sort((a, c) => String(c.created_at).localeCompare(String(a.created_at)))[0];
+  return x ? x.id : null;
+}
+
+async function nuevoGol(equipoId) {
   const p = partidoActual();
-  const t = estado.tarjeta;
-  const nombre = normalizarNombre(t.nombre);
-  if (!nombre) { aviso('Escribí el nombre del jugador.', 'error'); document.getElementById('tarjeta-nombre')?.focus(); return; }
-  const jug = D().jugadores.find((j) => j.equipo_id === t.equipo && j.nombre.trim().toLowerCase() === nombre.toLowerCase());
-  const minuto = t.minuto === '' || t.minuto === null ? null : Math.max(0, parseInt(t.minuto, 10) || 0);
-  const fila = { partido_id: p.id, equipo_id: t.equipo, jugador_id: jug ? jug.id : null, jugador_nombre: jug ? jug.nombre : nombre, tipo: t.tipo, minuto };
+  const r = await ventanaJugador(p, { tipo: 'gol', equipoId });
+  if (!r) return;
+  const jug = await jugadorElegido(p, r);
+  const fila = { partido_id: p.id, equipo_id: r.equipoId, ...jug, en_contra: !!r.enContra && !r.sinIdentificar, minuto: r.minuto };
+  // En pantalla al instante; el marcador lo recalcula la base a partir de los goles.
+  const lado = r.equipoId === p.local_id ? 'local' : 'visitante';
+  p[`goles_${lado}`] = (Number(p[`goles_${lado}`]) || 0) + 1;
+  D().goles.push({ ...fila, id: `tmp-${Date.now()}`, created_at: new Date().toISOString(), cargado_por: estado.yo?.id });
+  render();
+  const ok = await guardar(() => db.insertar('goles', [fila]), { ok: 'Gol cargado' });
+  if (!ok) { await almacen.recargar(); render(); }
+}
+
+async function editarGol(id) {
+  const p = partidoActual();
+  const g = D().goles.find((x) => x.id === id);
+  if (!p || !g) return;
+  const r = await ventanaJugador(p, {
+    tipo: 'gol', editar: true, equipoId: g.equipo_id, enContra: !!g.en_contra, minuto: g.minuto ?? '',
+    actual: { jugadorId: g.jugador_id, nombre: g.jugador_nombre, sinIdentificar: g.jugador_nombre === SIN_IDENTIFICAR },
+  });
+  if (!r) return;
+  if (r.eliminar) { await quitarGol(id); return; }
+  const real = await idReal('goles', g);
+  if (!real) { render(); return; }
+  const jug = await jugadorElegido(p, r);
+  const cambios = { equipo_id: r.equipoId, ...jug, en_contra: !!r.enContra && !r.sinIdentificar, minuto: r.minuto };
+  const fila = D().goles.find((x) => x.id === real);
+  if (fila) Object.assign(fila, cambios);
+  render();
+  const ok = await guardar(() => db.actualizar('goles', real, cambios), { ok: 'Gol corregido' });
+  if (!ok) { await almacen.recargar(); render(); }
+}
+
+async function nuevaTarjeta(equipoId, tipo) {
+  const p = partidoActual();
+  const r = await ventanaJugador(p, { tipo, equipoId });
+  if (!r) return;
+  const jug = await jugadorElegido(p, r);
+  const fila = { partido_id: p.id, equipo_id: r.equipoId, ...jug, tipo, minuto: r.minuto };
   if (!D().tarjetas) almacen.D.tarjetas = [];
   D().tarjetas.push({ ...fila, id: `tmp-${Date.now()}`, created_at: new Date().toISOString() });
-  estado.tarjeta = { ...t, nombre: '', minuto: '' };
   render();
-  await guardar(() => db.insertar('tarjetas', [fila]), { ok: t.tipo === 'roja' ? 'Roja cargada' : 'Amarilla cargada' });
+  const ok = await guardar(() => db.insertar('tarjetas', [fila]), { ok: tipo === 'roja' ? 'Roja cargada' : 'Amarilla cargada' });
+  if (!ok) { await almacen.recargar(); render(); }
+}
+
+async function editarTarjeta(id) {
+  const p = partidoActual();
+  const t = (D().tarjetas || []).find((x) => x.id === id);
+  if (!p || !t) return;
+  const r = await ventanaJugador(p, {
+    tipo: t.tipo, editar: true, equipoId: t.equipo_id, minuto: t.minuto ?? '',
+    actual: { jugadorId: t.jugador_id, nombre: t.jugador_nombre },
+  });
+  if (!r) return;
+  const real = await idReal('tarjetas', t);
+  if (!real) { render(); return; }
+  if (r.eliminar) {
+    almacen.D.tarjetas = D().tarjetas.filter((x) => x.id !== real);
+    render();
+    await guardar(() => db.borrar('tarjetas', [real]), { ok: 'Tarjeta eliminada' });
+    return;
+  }
+  const jug = await jugadorElegido(p, r);
+  const cambios = { ...jug, minuto: r.minuto };
+  const fila = D().tarjetas.find((x) => x.id === real);
+  if (fila) Object.assign(fila, cambios);
+  render();
+  const ok = await guardar(() => db.actualizar('tarjetas', real, cambios), { ok: 'Tarjeta corregida' });
+  if (!ok) { await almacen.recargar(); render(); }
 }
 
 function partidoActual() {
   return D().partidos.find((x) => x.id === estado.partido);
 }
 
-async function agregarGol({ sinIdentificar = false } = {}) {
-  const p = partidoActual();
-  const g = estado.gol;
-  const input = document.getElementById('gol-nombre');
-  if (input) g.nombre = input.value;
-  if (sinIdentificar) { g.nombre = SIN_IDENTIFICAR; g.enContra = false; }
-  const nombre = normalizarNombre(g.nombre);
-  if (!nombre) { aviso('Escribí el nombre del jugador.', 'error'); input && input.focus(); return; }
-  const rival = g.equipo === p.local_id ? p.visitante_id : p.local_id;
-  const deQuien = g.enContra ? rival : g.equipo;
-  const jug = D().jugadores.find((j) => j.equipo_id === deQuien && j.nombre.trim().toLowerCase() === nombre.toLowerCase());
-  const minuto = g.minuto === '' || g.minuto === null ? null : Math.max(0, parseInt(g.minuto, 10) || 0);
-  const lado = g.equipo === p.local_id ? 'local' : 'visitante';
-  const nuevo = (Number(p[`goles_${lado}`]) || 0) + 1;
-  const fila = { partido_id: p.id, equipo_id: g.equipo, jugador_id: jug ? jug.id : null, jugador_nombre: jug ? jug.nombre : nombre, en_contra: !!g.enContra, minuto };
-  // En pantalla al instante
-  p[`goles_${lado}`] = nuevo;
-  estado.gol = { equipo: g.equipo, nombre: '', minuto: '', enContra: false };
-  estado.sugerirPlantel = !jug && !g.enContra && !sinIdentificar ? { partido: p.id, equipo_id: deQuien, nombre } : null;
-  D().goles.push({ ...fila, id: `tmp-${Date.now()}`, created_at: new Date().toISOString(), cargado_por: estado.yo?.id });
-  render();
-  // El marcador del partido lo recalcula la base a partir de los goles.
-  const r = await guardar(() => db.insertar('goles', [fila]), { ok: 'Gol cargado' });
-  if (!r) { await almacen.recargar(); render(); }
-}
-
 async function quitarGol(id) {
   const p = partidoActual();
   let g = D().goles.find((x) => x.id === id);
   if (!g) return;
-  if (String(g.id).startsWith('tmp-')) {
-    // Recién cargado: todavía no tiene su id de la base. Se trae de nuevo y se busca el mismo gol.
-    const { partido_id: pid, equipo_id: eq, jugador_nombre: n } = g;
-    await almacen.recargar();
-    g = D().goles.filter((x) => x.partido_id === pid && x.equipo_id === eq && x.jugador_nombre === n)
-      .sort((a, c) => String(c.created_at).localeCompare(String(a.created_at)))[0];
-    if (!g) return;
-    id = g.id;
-  }
+  // Recién cargado: todavía no tiene su id de la base
+  id = await idReal('goles', g);
+  g = D().goles.find((x) => x.id === id);
+  if (!g) return;
   const lado = g.equipo_id === p.local_id ? 'local' : 'visitante';
   const nuevo = Math.max(0, (Number(p[`goles_${lado}`]) || 0) - 1);
   p[`goles_${lado}`] = nuevo;
@@ -1262,10 +1302,7 @@ const acciones = {
   // Resultados
   'abrir-partido': (b) => {
     estado.partido = b.dataset.id;
-    estado.sugerirPlantel = null;
     estado.directo = null;
-    estado.gol = { equipo: null, nombre: '', minuto: '', enContra: false };
-    estado.tarjeta = { equipo: null, nombre: '', minuto: '', tipo: 'amarilla' };
     render();
     scrollTo(0, 0);
   },
@@ -1276,28 +1313,16 @@ const acciones = {
   },
   'cerrar-partido': () => { estado.partido = null; estado.directo = null; render(); },
   'carga-directa': () => { estado.directo = estado.partido; render(); },
-  'tarjeta-tipo': (b) => { guardarFormTarjeta(); estado.tarjeta.tipo = b.dataset.valor; render(); },
-  'tarjeta-equipo': (b) => { guardarFormTarjeta(); estado.tarjeta.equipo = b.dataset.id; render(); document.getElementById('tarjeta-nombre')?.focus(); },
-  'agregar-tarjeta': () => agregarTarjeta(),
-  'quitar-tarjeta': async (b) => {
-    almacen.D.tarjetas = (D().tarjetas || []).filter((x) => x.id !== b.dataset.id);
-    render();
-    await guardar(() => db.borrar('tarjetas', [b.dataset.id]));
-  },
+  'gol-equipo': (b) => nuevoGol(b.dataset.id),
+  'editar-gol': (b) => editarGol(b.dataset.id),
+  'nueva-tarjeta': (b) => nuevaTarjeta(b.dataset.equipo, b.dataset.tipo),
+  'editar-tarjeta': (b) => editarTarjeta(b.dataset.id),
   empezar: () => {
     const p = partidoActual();
     cambiarEstado('en_juego');
   },
-  // "+": abre la carga del gol con ese equipo ya elegido
-  sumar: (b) => {
-    const p = partidoActual();
-    guardarFormGol();
-    estado.gol.equipo = p[`${b.dataset.lado}_id`];
-    estado.gol.enContra = false;
-    render();
-    const input = document.getElementById('gol-nombre');
-    if (input) { input.scrollIntoView({ block: 'center' }); input.focus(); }
-  },
+  // "+": abre la ventana para elegir quién hizo el gol de ese equipo
+  sumar: (b) => nuevoGol(partidoActual()[`${b.dataset.lado}_id`]),
   // "−": quita el último gol de ese equipo, pidiendo confirmación
   restar: async (b) => {
     const p = partidoActual();
@@ -1313,25 +1338,6 @@ const acciones = {
     // cargado pasa de su id provisorio al definitivo): se busca de nuevo el último gol.
     const actual = ultimoGol();
     if (actual) await quitarGol(actual.id);
-  },
-  'gol-sin-identificar': () => { guardarFormGol(); agregarGol({ sinIdentificar: true }); },
-  'gol-equipo': (b) => { guardarFormGol(); estado.gol.equipo = b.dataset.id; render(); document.getElementById('gol-nombre')?.focus(); },
-  'agregar-gol': () => { guardarFormGol(); agregarGol(); },
-  'quitar-gol': (b) => quitarGol(b.dataset.id),
-  'agregar-al-plantel': async () => {
-    const s = estado.sugerirPlantel;
-    estado.sugerirPlantel = null;
-    const r = await agregarJugadores(s.equipo_id, [s.nombre]);
-    if (r) {
-      // Vincular los goles que ya tenía cargados con ese nombre
-      const j = D().jugadores.find((x) => x.equipo_id === s.equipo_id && x.nombre.toLowerCase() === s.nombre.toLowerCase());
-      const sueltos = D().goles.filter((g) => !g.jugador_id && !g.en_contra && g.equipo_id === s.equipo_id && g.jugador_nombre.trim().toLowerCase() === s.nombre.toLowerCase());
-      // El cargador solo puede tocar goles con el partido en juego
-      const p = partidoActual();
-      const puede = soyAdmin() || (p && (p.estado === 'en_juego' || p.estado === 'programado'));
-      if (j && sueltos.length && puede) await guardar(async () => { for (const g of sueltos) await db.actualizar('goles', g.id, { jugador_id: j.id }); });
-    }
-    render();
   },
   terminar: () => terminarPartido(),
   corregir: async () => {
@@ -1351,8 +1357,6 @@ const acciones = {
     const r = await guardar(() => db.borrarResultado(p.id), { ok: 'Resultado borrado: el partido queda sin jugar' });
     if (r) {
       estado.directo = null;
-      estado.sugerirPlantel = null;
-      estado.gol = { equipo: null, nombre: '', minuto: '', enContra: false };
       render();
     }
   },
@@ -1485,15 +1489,6 @@ function moverDesempate(i, d) {
   guardarConfig({ desempate: lista });
 }
 
-function guardarFormGol() {
-  const n = document.querySelector('[data-gol="nombre"]');
-  const m = document.querySelector('[data-gol="minuto"]');
-  const c = document.querySelector('[data-gol="enContra"]');
-  if (n) estado.gol.nombre = n.value;
-  if (m) estado.gol.minuto = m.value;
-  if (c) estado.gol.enContra = c.checked;
-}
-
 document.addEventListener('click', (e) => {
   const v = e.target.closest('[data-vista]');
   if (v) {
@@ -1521,21 +1516,16 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
-  if (e.target.matches('[data-gol="nombre"], [data-gol="minuto"]')) { e.preventDefault(); guardarFormGol(); agregarGol(); }
   if (e.target.matches('[data-nuevo-jugador]')) { e.preventDefault(); acciones['agregar-jugador'](); }
-  if (e.target.matches('[data-tarjeta]')) { e.preventDefault(); agregarTarjeta(); }
 });
 
 document.addEventListener('input', (e) => {
   const t = e.target;
-  if (t.matches('[data-gol]')) guardarFormGol();
-  if (t.matches('[data-tarjeta]')) guardarFormTarjeta();
   if (t.matches('[data-nuevo-jugador]')) estado.nuevoJugador = t.value;
 });
 
 document.addEventListener('change', async (e) => {
   const t = e.target;
-  if (t.matches('[data-gol="enContra"]')) { guardarFormGol(); render(); return; }
   if (t.matches('[data-sorteo]')) {
     await asignarNumero(Number(t.dataset.sorteo), t.value || null);
     return;

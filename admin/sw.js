@@ -1,7 +1,7 @@
 // Service worker del PANEL (scope /admin/). Solo guarda los archivos del panel para que abra
 // rápido y aunque haya mala señal; NO guarda datos del torneo sin conexión.
 // Subir CACHE_VERSION junto con ADMIN_VERSION de js/config.js, siempre en el mismo cambio.
-const CACHE_VERSION = '1.3.0';
+const CACHE_VERSION = '1.4.0';
 const PREFIJO = 'nocturno-admin-';
 const CACHE = `${PREFIJO}${CACHE_VERSION}`;
 
@@ -22,6 +22,7 @@ const APP = [
   '../js/placas.js',
   '../js/admin.js',
   '../js/salida.js',
+  '../js/elegir-jugador.js',
   '../assets/logo-mitre-75.jpg',
   '../assets/icon-admin-192.png',
   '../assets/icon-admin-512.png',

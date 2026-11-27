@@ -9,7 +9,7 @@ export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 export const VERSION = '1.2.2';
 
 // Versión del panel: subir junto con CACHE_VERSION de /admin/sw.js, siempre en el mismo cambio.
-export const ADMIN_VERSION = '1.3.0';
+export const ADMIN_VERSION = '1.4.0';
 
 // Dirección pública que aparece en las placas.
 export const SITIO = 'cdmfutbolmayor.github.io';

@@ -385,3 +385,49 @@ img.escudo { border: 1px solid var(--borde); }
 .admin .cabecera.lista #conexion { order: 3; margin-right: auto; margin-top: 4px; }
 .admin .cabecera.lista .ver-web { order: 4; margin-top: 4px; min-height: 44px; padding: 0 2px; }
 .admin .cabecera.lista .cab-fecha { order: 5; margin-top: 0; }
+
+/* ── Goles y tarjetas: editables ────────────────────────── */
+.gol-item.editable { width: 100%; border: 0; text-align: left; font: inherit; color: inherit; min-height: 48px; cursor: pointer; }
+.gol-item.editable:hover { background: #e9eef6; }
+.gol-item .editar { color: var(--azul); display: inline-flex; padding: 0 6px; }
+.tarjetas-equipos { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--borde); padding-top: 10px; }
+.tarjeta-eq { display: flex; align-items: center; gap: 8px; }
+.tarjeta-eq .eq { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.tarjeta-eq .eq span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tarjeta-eq .btn { padding: 0 10px; font-size: 14px; }
+
+/* ── Ventana para elegir jugador (hoja que sube desde abajo) ── */
+.hoja {
+  position: fixed; inset: auto 0 0 0; margin: 0 auto; padding: 0; border: 0; width: 100%; max-width: 560px;
+  height: 92vh; height: 92dvh; max-height: none; background: transparent; overflow: visible;
+}
+.hoja::backdrop { background: rgba(10, 20, 40, .55); }
+.hoja-caja {
+  height: 100%; display: flex; flex-direction: column; background: #fff; border-radius: 16px 16px 0 0;
+  animation: hoja-sube .2s ease-out; transition: transform .16s ease-in;
+}
+.hoja.saliendo .hoja-caja { transform: translateY(100%); }
+@keyframes hoja-sube { from { transform: translateY(100%); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .hoja-caja { animation: none; transition: none; } }
+.hoja-cab { padding: 8px 16px 6px; touch-action: none; cursor: grab; }
+.hoja-asa { display: block; width: 40px; height: 5px; border-radius: 3px; background: #cdd5e0; margin: 0 auto 8px; }
+.hoja-cab h2 { margin: 0; font-size: 18px; outline: none; }
+.hoja-sub { margin: 2px 0 0; font-size: 13px; color: var(--sec); }
+.hoja-opciones { padding: 4px 16px 8px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--borde); }
+.hoja-opciones .equipo-btns .btn[aria-pressed="true"] { background: var(--azul); color: #fff; border-color: var(--azul); }
+.hoja-buscar { min-height: 44px; border: 1px solid var(--borde-input); border-radius: 8px; padding: 0 12px; font: inherit; font-size: 16px; }
+.hoja-lista { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0; }
+.hoja-fila {
+  width: 100%; min-height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border: 0;
+  border-bottom: 1px solid var(--borde); background: #fff; font: inherit; font-size: 16px; color: var(--texto); text-align: left; cursor: pointer;
+}
+.hoja-fila .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hoja-fila small { font-size: 12px; color: var(--sec); white-space: nowrap; }
+.hoja-fila[aria-pressed="true"] { background: var(--azul-chip); font-weight: 700; }
+.hoja-fila[aria-pressed="true"]::after { content: '✓'; color: var(--azul); font-weight: 700; }
+.hoja-fila.otro .n, .hoja-fila.sin .n { color: var(--azul); font-weight: 600; }
+.hoja-otro { padding: 10px 16px 14px; display: flex; flex-direction: column; gap: 10px; background: #f7f9fc; border-bottom: 1px solid var(--borde); }
+.hoja-otro input.error { border-color: #b71c1c; }
+.hoja-vacio { margin: 0; padding: 14px 16px; color: var(--sec); font-size: 14px; }
+.hoja-pie { display: flex; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--borde); }
+.hoja-pie .btn { flex: 1; min-height: 48px; }

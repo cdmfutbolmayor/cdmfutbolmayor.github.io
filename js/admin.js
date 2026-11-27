@@ -136,7 +136,12 @@ const MENU = [
 
 function esqueleto() {
   app.innerHTML = `
-    <header class="cabecera"><div id="cab"></div><span id="conexion" class="conexion"></span></header>
+    <header class="cabecera"><div id="cab"></div>
+      <div class="cab-derecha">
+        <span id="conexion" class="conexion"></span>
+        <a class="ver-web" href="../" target="_blank" rel="noopener">${ICONO.enlace}Ver la web pública</a>
+      </div>
+    </header>
     ${MODO === 'demo' ? '<div class="banda prueba">Modo de prueba: los datos quedan guardados solo en este navegador.</div>' : ''}
     <main class="contenido" id="contenido"></main>
     <nav class="menu-inferior" aria-label="Secciones del panel">
@@ -1000,7 +1005,6 @@ function vistaFormato() {
     </section>
 
     <section class="tarjeta pad">
-      <a class="btn" href="../" target="_blank" rel="noopener">${ICONO.enlace}Ver la web pública</a>
       <button class="btn" data-accion="salir">${ICONO.salir}Cerrar sesión</button>
     </section>
 
@@ -1582,6 +1586,50 @@ async function olvideClave() {
 // INGRESO Y ARRANQUE
 // ═════════════════════════════════════════════════════════════
 
+// ── Instalar el panel como app ────────────────────────────
+// Android/Chrome avisa con "beforeinstallprompt"; se guarda para mostrar nuestro botón "Instalar".
+let pedidoInstalar = null;
+addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  pedidoInstalar = e;
+  refrescarInstalar();
+});
+addEventListener('appinstalled', () => {
+  pedidoInstalar = null;
+  refrescarInstalar();
+  aviso('Listo: el panel quedó instalado.', 'ok');
+});
+const esIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const yaInstalada = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+function bloqueInstalar() {
+  if (yaInstalada()) return '';
+  if (pedidoInstalar) {
+    return `<div class="instalar"><b>Instalá el panel en tu celular</b>
+      <span class="ayuda">Queda como una app aparte ("Admin Torneo"), con su ícono, y abre directo acá.</span>
+      <button class="btn primario" type="button" id="btn-instalar">Instalar</button></div>`;
+  }
+  if (esIOS) {
+    return `<div class="instalar"><b>Instalá el panel en tu celular</b>
+      <span class="ayuda">Tocá Compartir → Agregar a inicio. Queda como una app aparte ("Admin Torneo").</span></div>`;
+  }
+  return '';
+}
+
+function refrescarInstalar() {
+  const z = document.getElementById('zona-instalar');
+  if (z) z.innerHTML = bloqueInstalar();
+}
+
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest('#btn-instalar') || !pedidoInstalar) return;
+  const pedido = pedidoInstalar;
+  pedidoInstalar = null;
+  await pedido.prompt();
+  try { await pedido.userChoice; } catch { /* */ }
+  refrescarInstalar();
+});
+
 function pantallaIngreso(error = '') {
   app.innerHTML = `
     <form class="login" id="login">
@@ -1593,6 +1641,7 @@ function pantallaIngreso(error = '') {
       ${error ? `<p class="error-txt" role="alert">${esc(error)}</p>` : ''}
       <button class="btn grande primario" type="submit">Entrar</button>
       <button class="btn" type="button" id="olvide" style="border:0;background:transparent;color:var(--azul)">Olvidé mi contraseña</button>
+      <div id="zona-instalar">${bloqueInstalar()}</div>
       <a href="../" class="ayuda" style="text-align:center">Ir a la web del torneo</a>
     </form>`;
   document.getElementById('olvide').addEventListener('click', olvideClave);
@@ -1666,5 +1715,6 @@ async function entrar() {
 })();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('../sw.js').catch(() => {});
+  // Service worker propio del panel (scope /admin/), separado del de la web pública.
+  navigator.serviceWorker.register('sw.js', { scope: './' }).catch(() => {});
 }

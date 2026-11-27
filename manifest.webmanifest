@@ -1,16 +1,17 @@
 {
-  "name": "Nocturno Comercial · C.D. Mitre",
+  "id": "/",
+  "name": "Nocturno Comercial",
   "short_name": "Nocturno",
-  "description": "Partidos, tabla, goleadores y playoff del torneo Nocturno Comercial.",
+  "description": "Partidos, tabla, goleadores y playoff del torneo Nocturno Comercial del C.D. Mitre.",
   "lang": "es",
-  "start_url": "./",
-  "scope": "./",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#eef2f7",
   "theme_color": "#0b2d5b",
   "icons": [
-    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

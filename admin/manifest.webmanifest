@@ -1,0 +1,17 @@
+{
+  "id": "/admin/",
+  "name": "Nocturno Admin",
+  "short_name": "Admin Torneo",
+  "description": "Panel de los organizadores del torneo Nocturno Comercial: resultados, fixture y equipos.",
+  "lang": "es",
+  "start_url": "/admin/",
+  "scope": "/admin/",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#1a1a1a",
+  "icons": [
+    { "src": "/assets/icon-admin-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-admin-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-admin-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,13 +1,14 @@
-// Service worker: guarda la app para abrirla sin conexión.
+// Service worker de la app PÚBLICA (scope /). Guarda la web para abrirla sin conexión.
+// No cachea ni intercepta nada bajo /admin/: el panel tiene su propio service worker (admin/sw.js).
 // Subir CACHE_VERSION junto con VERSION de js/config.js, siempre en el mismo cambio.
-const CACHE_VERSION = '1.1.3';
-const CACHE = `nocturno-${CACHE_VERSION}`;
+const CACHE_VERSION = '1.2.0';
+const PREFIJO = 'nocturno-publico-';
+const CACHE = `${PREFIJO}${CACHE_VERSION}`;
+const ADMIN = new URL('admin/', self.registration.scope).pathname; // '/admin/'
 
 const APP = [
   './',
   './index.html',
-  './admin/',
-  './admin/index.html',
   './css/app.css',
   './js/config.js',
   './js/util.js',
@@ -20,7 +21,6 @@ const APP = [
   './js/ui.js',
   './js/placas.js',
   './js/publico.js',
-  './js/admin.js',
   './js/salida.js',
   './manifest.webmanifest',
   './assets/logo-mitre-75.jpg',
@@ -29,15 +29,16 @@ const APP = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(APP)).then(() => self.skipWaiting())
-  );
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(APP)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('nocturno-') && k !== CACHE).map((k) => caches.delete(k))))
+      // Borra sus versiones viejas (y el cache de antes de separar las apps), nunca el del admin.
+      .then((keys) => Promise.all(keys
+        .filter((k) => k.startsWith('nocturno-') && !k.startsWith('nocturno-admin-') && k !== CACHE)
+        .map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -48,6 +49,9 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+
+  // El panel no es de esta app: ni se cachea ni se intercepta.
+  if (url.origin === self.location.origin && url.pathname.startsWith(ADMIN)) return;
 
   // Fuentes y librerías: primero el cache.
   if (CDN.includes(url.hostname)) {

@@ -244,8 +244,10 @@ export async function placaTabla(D) {
   const top = 290;
   const h = Math.min(96, (1230 - top - 70) / Math.max(filas, 1));
   // Cabecera
-  const cols = { pj: 700, dg: 820, pts: 950 };
+  const cols = { pj: 590, gf: 676, gc: 762, dg: 852, pts: 956 };
   texto(ctx, 'PJ', cols.pj, top + 26, { tam: 26, peso: 700, color: CLARO, align: 'center' });
+  texto(ctx, 'GF', cols.gf, top + 26, { tam: 26, peso: 700, color: CLARO, align: 'center' });
+  texto(ctx, 'GC', cols.gc, top + 26, { tam: 26, peso: 700, color: CLARO, align: 'center' });
   texto(ctx, 'DG', cols.dg, top + 26, { tam: 26, peso: 700, color: CLARO, align: 'center' });
   texto(ctx, 'PTS', cols.pts, top + 26, { tam: 26, peso: 700, color: CLARO, align: 'center' });
   t.forEach((f, i) => {
@@ -256,8 +258,10 @@ export async function placaTabla(D) {
     if (zc) rect(ctx, 84, cy - 24, 48, 48, 8, zc);
     texto(ctx, String(f.pos), 108, cy + 1, { tam: 30, peso: 700, color: zc ? '#fff' : '#4f5b6b', align: 'center' });
     dibujarEscudo(ctx, f, 180, cy, Math.min(52, h - 30));
-    texto(ctx, f.nombre, 222, cy, { tam: 34, peso: 600, maxW: 400 });
+    texto(ctx, f.nombre, 222, cy, { tam: 34, peso: 600, maxW: 320 });
     texto(ctx, String(f.pj), cols.pj, cy, { tam: 34, peso: 500, align: 'center' });
+    texto(ctx, String(f.gf), cols.gf, cy, { tam: 34, peso: 500, align: 'center' });
+    texto(ctx, String(f.gc), cols.gc, cy, { tam: 34, peso: 500, align: 'center' });
     texto(ctx, `${f.dg > 0 ? '+' : ''}${f.dg}`, cols.dg, cy, { tam: 34, peso: 500, color: '#4f5b6b', align: 'center' });
     texto(ctx, String(f.pts), cols.pts, cy, { tam: 44, peso: 700, fam: TIT, color: AZUL, align: 'center' });
   });

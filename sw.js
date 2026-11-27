@@ -1,6 +1,6 @@
 // Service worker: guarda la app para abrirla sin conexión.
 // Subir CACHE_VERSION junto con VERSION de js/config.js, siempre en el mismo cambio.
-const CACHE_VERSION = '1.1.1';
+const CACHE_VERSION = '1.1.3';
 const CACHE = `nocturno-${CACHE_VERSION}`;
 
 const APP = [

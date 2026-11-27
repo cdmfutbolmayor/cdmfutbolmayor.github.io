@@ -174,13 +174,14 @@ function vistaTabla(D) {
       <span><span class="pos ${f.zona || ''}">${f.pos}</span></span>
       <span class="eq">${escudo(f, 18)}<span>${esc(f.nombre)}</span></span>
       <span class="num">${f.pj}</span><span class="num">${f.g}</span><span class="num">${f.e}</span><span class="num">${f.p}</span>
+      <span class="num">${f.gf}</span><span class="num">${f.gc}</span>
       <span class="num dg">${f.dg > 0 ? '+' : ''}${f.dg}</span>
       <span class="num pts">${f.pts}</span>
     </div>`).join('');
   const leyenda = leyendaZonas(c).map((z) => `<span class="item"><span class="cuadro ${z.zona}"></span>${esc(z.texto)}</span>`).join('');
   return `
     <section class="tarjeta tabla-pos" aria-label="Tabla de posiciones">
-      <div class="t-fila cab"><span>#</span><span>Equipo</span><span class="num">PJ</span><span class="num">G</span><span class="num">E</span><span class="num">P</span><span class="num">DG</span><span class="num">Pts</span></div>
+      <div class="t-fila cab"><span>#</span><span>Equipo</span><span class="num">PJ</span><span class="num">G</span><span class="num">E</span><span class="num">P</span><span class="num" title="Goles a favor">GF</span><span class="num" title="Goles en contra">GC</span><span class="num">DG</span><span class="num">Pts</span></div>
       ${filas}
     </section>
     <div class="leyenda">${leyenda}<span style="color:var(--sec)">${esc(textoDesempate(c))}</span></div>`;
@@ -257,7 +258,7 @@ function detalleEquipo(D, f) {
     } else {
       res = `<span class="res pend">${esc(fechaLarga(p.dia).split(' ')[0].slice(0, 3))} ${esc(fechaLarga(p.dia).split(' ')[1] || '')} ${esc(hora(p.hora))}</span>`;
     }
-    return `<div class="fila" style="font-size:13px"><span style="width:62px;color:var(--sec);flex:0 0 auto">${esc(etiqueta)}</span><span style="flex:1;min-width:0">${local ? '' : '<span style="color:var(--sec)">en </span>'}${esc(rival)}</span>${res}</div>`;
+    return `<div class="fila" style="font-size:13px"><span style="flex:1;min-width:0"><span style="color:var(--sec)">${esc(etiqueta)} - </span>${esc(rival)}</span>${res}</div>`;
   };
 
   return `

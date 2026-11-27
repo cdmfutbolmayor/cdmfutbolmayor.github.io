@@ -69,15 +69,16 @@ function rolDe(s) {
   return u && u.activo ? u.rol : null;
 }
 
-const enJuego = (s, partidoId) => s.partidos.some((p) => p.id === partidoId && p.estado === 'en_juego');
+// Sin jugar o en juego: el cargador puede cargar goles y tarjetas (también en la carga directa)
+const abierto = (s, partidoId) => s.partidos.some((p) => p.id === partidoId && (p.estado === 'en_juego' || p.estado === 'programado'));
 
-/** Mismas reglas que las políticas de sql/004_usuarios.sql */
+/** Mismas reglas que las políticas de sql/004, 006 y 007 */
 function permitir(s, tabla, filas) {
   const rol = rolDe(s);
   if (rol === 'admin') return;
   if (rol === 'cargador') {
-    if (tabla === 'jugadores-insert') return;
-    if ((tabla === 'goles' || tabla === 'tarjetas') && filas.every((f) => enJuego(s, f.partido_id))) return;
+    if (['jugadores-insert', 'equipos', 'jugadores', 'fechas', 'partidos', 'actividades', 'storage'].includes(tabla)) return;
+    if ((tabla === 'goles' || tabla === 'tarjetas') && filas.every((f) => abierto(s, f.partido_id))) return;
   }
   throw new Error(SIN_PERMISO);
 }
@@ -156,6 +157,13 @@ export function crear() {
       const s = leer();
       const f = s[tabla].find((x) => x.id === id);
       permitir(s, tabla, f ? [f] : []);
+      // Guardia (sql/007): el cargador no cambia estado, marcador ni penales con un update directo
+      if (tabla === 'partidos' && f && rolDe(s) === 'cargador') {
+        const tocaResultado = ['estado', 'goles_local', 'goles_visitante', 'penales_local', 'penales_visitante']
+          .some((k) => k in cambios && cambios[k] !== f[k]);
+        const tocaEquipos = f.estado === 'finalizado' && ['local_id', 'visitante_id'].some((k) => k in cambios && cambios[k] !== f[k]);
+        if (tocaResultado || tocaEquipos) throw new Error(SIN_PERMISO);
+      }
       if (f) Object.assign(f, cambios, tabla === 'partidos' ? { updated_at: new Date().toISOString() } : {});
       if (tabla === 'goles' && f) recalcular(s, [f.partido_id]);
       guardar(s);
@@ -227,7 +235,7 @@ export function crear() {
       const p = s.partidos.find((x) => x.id === partidoId);
       if (!p || !p.local_id || !p.visitante_id) throw new Error('Este cruce todavía no está definido.');
       const ok = rol === 'admin'
-        || (p.estado === 'programado' && ['en_juego', 'suspendido'].includes(nuevo))
+        || (p.estado === 'programado' && ['en_juego', 'finalizado', 'suspendido'].includes(nuevo))
         || (p.estado === 'en_juego' && ['finalizado', 'suspendido'].includes(nuevo));
       if (!ok) throw new Error(SIN_PERMISO);
       const gl = s.goles.filter((g) => g.partido_id === p.id && g.equipo_id === p.local_id).length;
@@ -254,7 +262,7 @@ export function crear() {
       const s = leer();
       const rol = rolDe(s);
       const p = s.partidos.find((x) => x.id === partidoId);
-      if (!rol || !p || p.ronda === 'todos' || (rol === 'cargador' && p.estado !== 'en_juego')) throw new Error(SIN_PERMISO);
+      if (!rol || !p || p.ronda === 'todos' || (rol === 'cargador' && !['en_juego', 'programado'].includes(p.estado))) throw new Error(SIN_PERMISO);
       p.penales_local = local;
       p.penales_visitante = visitante;
       p.actualizado_por = sesionGuardada().id;

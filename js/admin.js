@@ -53,6 +53,8 @@ const estado = {
 
 const D = () => almacen.D;
 const soyAdmin = () => !!estado.yo && estado.yo.rol === 'admin';
+/** El cargador usa Resultados, Fixture y Equipos. Formato y Usuarios, solo admin. */
+const puedeVer = (vista) => soyAdmin() || ['resultados', 'fixture', 'equipos'].includes(vista);
 const nombreDe = (userId) => (userId && estado.nombres[userId]) || null;
 
 // ── Guardado ───────────────────────────────────────────────
@@ -137,9 +139,9 @@ function esqueleto() {
     <header class="cabecera"><div id="cab"></div><span id="conexion" class="conexion"></span></header>
     ${MODO === 'demo' ? '<div class="banda prueba">Modo de prueba: los datos quedan guardados solo en este navegador.</div>' : ''}
     <main class="contenido" id="contenido"></main>
-    ${soyAdmin() ? `<nav class="menu-inferior" aria-label="Secciones del panel">
-      ${MENU.map(([k, l, i]) => `<button data-vista="${k}">${i}<span>${l}</span></button>`).join('')}
-    </nav>` : ''}`;
+    <nav class="menu-inferior" aria-label="Secciones del panel">
+      ${MENU.filter(([k]) => puedeVer(k)).map(([k, l, i]) => `<button data-vista="${k}">${i}<span>${l}</span></button>`).join('')}
+    </nav>`;
 }
 
 function pintarCabecera() {
@@ -178,7 +180,7 @@ function render() {
   if (!almacen) return;
   renderPendiente = false;
   pintarCabecera();
-  if (!soyAdmin()) estado.vista = 'resultados'; // el cargador solo ve Resultados
+  if (!puedeVer(estado.vista)) estado.vista = 'resultados';
   const vistas = { resultados: vistaResultados, fixture: vistaFixture, equipos: vistaEquipos, formato: vistaFormato, usuarios: vistaUsuarios };
   document.getElementById('contenido').innerHTML = vistas[estado.vista]();
 }
@@ -279,7 +281,7 @@ function vistaCarga(p) {
   }
 
   // Carga directa: el partido sigue "programado" (no se ve en la web) hasta que se guarda el resultado.
-  const directo = soyAdmin() && p.estado === 'programado' && (estado.directo === p.id || tieneCargaDirecta(p));
+  const directo = p.estado === 'programado' && (estado.directo === p.id || tieneCargaDirecta(p));
   if (p.estado === 'suspendido' || (p.estado === 'programado' && !directo)) {
     return `${volver}
       <section class="tarjeta pad">
@@ -293,7 +295,7 @@ function vistaCarga(p) {
         ${p.estado === 'suspendido'
           ? (soyAdmin() ? '<button class="btn grande primario" data-accion="reprogramar-partido">Volver a programarlo</button>' : '<p class="ayuda">Para volver a programarlo, avisale a un admin.</p>')
           : '<button class="btn grande primario" data-accion="empezar">Empezar partido</button>'}
-        ${p.estado === 'programado' && soyAdmin() ? `<button class="btn grande secundario" data-accion="carga-directa">Cargar el resultado directo</button>
+        ${p.estado === 'programado' ? `<button class="btn grande secundario" data-accion="carga-directa">Cargar el resultado directo</button>
           <p class="ayuda">Para un partido ya jugado: ponés los goles, los autores y las tarjetas, y lo guardás de una. No hace falta empezarlo ni terminarlo.</p>` : ''}
         ${p.estado === 'programado' ? '<button class="btn peligro" data-accion="suspender">Suspender partido</button>' : ''}
         <p class="ayuda">Para cambiar el día o la hora, andá a Fixture.</p>
@@ -553,6 +555,7 @@ function fechaFixture() {
 }
 
 function vistaFixture() {
+  const ed = true; // admin y cargador editan el fixture
   const hayTodos = D().fechas.some((f) => f.fase === 'todos');
   const activos = D().equipos.filter((e) => e.activo !== false);
   const c = cfg(D());
@@ -572,9 +575,9 @@ function vistaFixture() {
       <div class="${act ? 'actividad-adm' : ''}" style="border-top:1px solid var(--borde)">
         <div class="fila" style="border-top:0">
           <span class="txt">${act ? '<span style="font-size:11px;font-weight:700;letter-spacing:.5px;color:#5b4a00;display:block">FUERA DEL TORNEO</span>' : ''}<span style="font-weight:600">${esc(txt)}</span><span class="sub ${reprog ? 'reprog' : ''}">${esc(sub)}</span></span>
-          <button class="btn-icono borde" data-accion="abrir-item" data-id="${key}" aria-label="Cambiar día y hora de ${esc(txt)}" aria-expanded="${abierto}">${ICONO.calendario}</button>
+          ${ed ? `<button class="btn-icono borde" data-accion="abrir-item" data-id="${key}" aria-label="Cambiar día y hora de ${esc(txt)}" aria-expanded="${abierto}">${ICONO.calendario}</button>` : ''}
         </div>
-        ${abierto ? `
+        ${abierto && ed ? `
           <div class="editor">
             ${act ? `<label class="campo">Qué se juega<input data-item="${key}" data-tipo="${it.tipo}" data-campo="titulo" value="${esc(it.titulo)}"></label>` : ''}
             <div class="dos">
@@ -598,16 +601,16 @@ function vistaFixture() {
         <span class="ayuda">Día previsto de ${f.fase === 'playoff' ? esc(f.nombre || 'la fecha') : `la fecha ${f.numero}`}</span>
         <span style="font-weight:700;font-size:16px">${esc(fechaLarga(f.dia_previsto))}</span>
       </div>
-      <button class="btn secundario" data-accion="mover-fecha" style="font-size:13px">Mover toda la fecha</button>
+      ${ed ? '<button class="btn secundario" data-accion="mover-fecha" style="font-size:13px">Mover toda la fecha</button>' : ''}
     </section>
-    ${feriado ? `<div class="alerta">${esc(feriado)} Si hace falta, movela.</div>` : ''}
+    ${feriado && ed ? `<div class="alerta">${esc(feriado)} Si hace falta, movela.</div>` : ''}
     <section class="tarjeta" style="overflow:visible">
       ${filas ? filas.replace('border-top:1px solid var(--borde)', 'border-top:0') : '<div class="vacio">Esta fecha no tiene partidos.</div>'}
       ${libres}
     </section>
-    <button class="btn punteado" data-accion="agregar-actividad" style="min-height:48px">+ Agregar partido exhibición u otra actividad</button>
-    <p class="ayuda" style="text-align:center">No suma puntos ni goles. Se muestra en la fecha, ordenado por hora.</p>
-    ${puede ? `<button class="btn peligro" data-accion="borrar-fixture" style="margin-top:12px">Borrar el fixture y volver al sorteo</button>
+    ${ed ? `<button class="btn punteado" data-accion="agregar-actividad" style="min-height:48px">+ Agregar partido exhibición u otra actividad</button>
+    <p class="ayuda" style="text-align:center">No suma puntos ni goles. Se muestra en la fecha, ordenado por hora.</p>` : ''}
+    ${puede && ed ? `<button class="btn peligro" data-accion="borrar-fixture" style="margin-top:12px">Borrar el fixture y volver al sorteo</button>
       <p class="ayuda" style="text-align:center">Se puede mientras no haya ningún resultado cargado. Los números del sorteo quedan guardados.</p>` : ''}`;
 }
 
@@ -673,7 +676,7 @@ function vistaSorteo(activos, c) {
         ? '<p class="ayuda">Están todos los números asignados.</p>'
         : `<div class="alerta">${faltan === 1 ? 'Falta asignar 1 número' : `Faltan asignar ${faltan} números`}.</div>`}
       <button class="btn grande primario" data-accion="armar-fixture" ${s.completo ? '' : 'disabled'}>Armar fixture</button>
-      <p class="ayuda">Los partidos caen ${esc(textoDiasJuego(c))} desde el ${esc(fechaLarga(c.fecha_inicio).toLowerCase())}, el primero a las ${esc(hora(c.hora_primer_partido))} y uno cada ${c.minutos_entre_partidos} minutos. Se cambia en Formato.</p>
+      <p class="ayuda">Los partidos caen ${esc(textoDiasJuego(c))} desde el ${esc(fechaLarga(c.fecha_inicio).toLowerCase())}, el primero a las ${esc(hora(c.hora_primer_partido))} y uno cada ${c.minutos_entre_partidos} minutos.${soyAdmin() ? ' Se cambia en Formato.' : ''}</p>
     </section>`;
 }
 
@@ -1212,7 +1215,7 @@ const acciones = {
       const sueltos = D().goles.filter((g) => !g.jugador_id && !g.en_contra && g.equipo_id === s.equipo_id && g.jugador_nombre.trim().toLowerCase() === s.nombre.toLowerCase());
       // El cargador solo puede tocar goles con el partido en juego
       const p = partidoActual();
-      const puede = soyAdmin() || (p && p.estado === 'en_juego');
+      const puede = soyAdmin() || (p && (p.estado === 'en_juego' || p.estado === 'programado'));
       if (j && sueltos.length && puede) await guardar(async () => { for (const g of sueltos) await db.actualizar('goles', g.id, { jugador_id: j.id }); });
     }
     render();

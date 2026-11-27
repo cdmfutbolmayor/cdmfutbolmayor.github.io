@@ -1,7 +1,7 @@
 // Service worker de la app PÚBLICA (scope /). Guarda la web para abrirla sin conexión.
 // No cachea ni intercepta nada bajo /admin/: el panel tiene su propio service worker (admin/sw.js).
 // Subir CACHE_VERSION junto con VERSION de js/config.js, siempre en el mismo cambio.
-const CACHE_VERSION = '1.2.1';
+const CACHE_VERSION = '1.2.2';
 const PREFIJO = 'nocturno-publico-';
 const CACHE = `${PREFIJO}${CACHE_VERSION}`;
 const ADMIN = new URL('admin/', self.registration.scope).pathname; // '/admin/'

@@ -1,6 +1,8 @@
 // Piezas de interfaz compartidas por la vista pública y el admin.
-import { esc, inicial, textoSobre, fechaCorta, fechaLargaMin, hora } from './util.js';
-import { esReprogramado, nombreCruce, esSinIdentificar } from './calculos.js';
+import { esc, inicial, textoSobre, fechaCorta, fechaLarga, fechaLargaMin, hora } from './util.js';
+import {
+  esReprogramado, nombreCruce, esSinIdentificar, tieneResultado, ganadorPartido, libresDeFecha, fechasOrdenadas,
+} from './calculos.js';
 
 const svg = (d, extra = '') =>
   `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${d}</svg>`;
@@ -114,6 +116,97 @@ export function hayPenales(p) {
 // ── Avisos y diálogos ──────────────────────────────────────
 
 let zonaToast;
+// ── Fila de partido (web pública y lista de Resultados del panel) ──
+
+export function marcadorHTML(p) {
+  const jugado = tieneResultado(p) && p.estado !== 'programado';
+  const vivo = p.estado === 'en_juego';
+  const clase = vivo ? 'caja vivo' : jugado ? 'caja' : 'caja vacia';
+  const pen = hayPenales(p);
+  const g = (lado) => {
+    if (!jugado) return '-';
+    const n = p[`goles_${lado}`];
+    return pen ? `${n} <span class="pen" style="color:inherit;opacity:.85">(${p[`penales_${lado}`]})</span>` : `${n}`;
+  };
+  const etiqueta = jugado
+    ? `${p.goles_local} a ${p.goles_visitante}${pen ? `, penales ${p.penales_local} a ${p.penales_visitante}` : ''}`
+    : 'sin resultado';
+  return `<span class="p-marcador" role="img" aria-label="${esc(etiqueta)}"><span class="${clase}" aria-hidden="true">${g('local')}</span><span class="${clase}" aria-hidden="true">${g('visitante')}</span></span>`;
+}
+
+/** Renglón principal: estado, local con escudo, marcador, visitante. Con spans: va también dentro de un botón. */
+export function lineaPartido(p, fecha, eqs) {
+  const st = estadoPartido(p, fecha);
+  const r = ganadorPartido(p);
+  const lado = (l) => {
+    const eq = eqs.get(p[`${l}_id`]);
+    const gana = r && r.ganador === p[`${l}_id`];
+    const nombre = `<span class="nombre ${gana ? 'gana' : ''} ${eq ? '' : 'origen'}">${esc(nombreLado(p, l, eqs))}</span>`;
+    const esc_ = escudo(eq, 20);
+    return `<span class="p-lado ${l}">${l === 'local' ? nombre + esc_ : esc_ + nombre}</span>`;
+  };
+  return `<span class="linea">
+        <span class="p-estado ${st.clase}">${esc(st.texto)}</span>
+        ${lado('local')}
+        ${marcadorHTML(p)}
+        ${lado('visitante')}
+      </span>`;
+}
+
+/** Etiquetas debajo: cruce del playoff, suspendido, reprogramado. */
+export function extrasPartido(p, fecha) {
+  const res = [];
+  const cruce = etiquetaCruce(p);
+  if (cruce && fecha && fecha.fase === 'playoff' && cruce !== fecha.nombre) res.push(`<span class="etiqueta cruce">${esc(cruce)}</span>`);
+  if (p.estado === 'suspendido') res.push('<span class="etiqueta susp">Suspendido</span>');
+  else if (esReprogramado(p, fecha) && p.estado !== 'finalizado') res.push(`<span class="etiqueta reprog">${esc(textoReprogramado(p))}</span>`);
+  return res.join('');
+}
+
+export function filaPartido(D, p, fecha, eqs) {
+  // Lo cargado se muestra solo si el partido está en juego o terminado (la carga directa no se ve hasta guardarla)
+  const visible = partidoVisible(p);
+  const goles = visible ? golesPorLado(D, p) : { local: '', visitante: '' };
+  const tarj = visible ? tarjetasPorLado(D, p) : { local: [], visitante: [] };
+  const ladoTarjetas = (lista) => lista.map((t) => `<span class="t">${icoTarjeta(t.tipo)}${esc(t.nombre)}</span>`).join('');
+  return `
+    <div class="partido">
+      ${lineaPartido(p, fecha, eqs)}
+      ${goles.local || goles.visitante ? `<div class="p-goles"><span class="l">${esc(goles.local)}</span><span class="v">${esc(goles.visitante)}</span></div>` : ''}
+      ${tarj.local.length || tarj.visitante.length ? `<div class="p-tarjetas"><span class="l">${ladoTarjetas(tarj.local)}</span><span class="v">${ladoTarjetas(tarj.visitante)}</span></div>` : ''}
+      ${extrasPartido(p, fecha)}
+    </div>`;
+}
+
+export function filaActividad(a) {
+  return `<div class="actividad"><span class="p-estado">${esc(hora(a.hora))}</span><span class="txt">${esc(a.titulo)}</span></div>`;
+}
+
+export function libresHTML(D, f) {
+  return libresDeFecha(D, f).map((e) => `<div class="libre">Libre: ${esc(e.nombre)}</div>`).join('');
+}
+
+/** "Fecha 1 de 7", o el nombre de la ronda del playoff. */
+export function nombreFechaDe(D, f) {
+  if (f.fase === 'playoff') return f.nombre || `Fecha ${f.numero}`;
+  const total = (D.fechas || []).filter((x) => x.fase === 'todos').length;
+  return `Fecha ${f.numero} de ${total}`;
+}
+
+/** "‹ FECHA 1 DE 7 ›" con el día previsto. Los botones llevan data-fecha = índice en fechasOrdenadas. */
+export function selectorFecha(D, f) {
+  const fechas = fechasOrdenadas(D);
+  const i = fechas.indexOf(f);
+  return `<div class="selector-fecha">
+        <button class="btn-icono" data-fecha="${i - 1}" aria-label="Fecha anterior" ${i <= 0 ? 'disabled' : ''}>${ICONO.izq}</button>
+        <div class="centro">
+          <span class="nombre">${esc(nombreFechaDe(D, f))}</span>
+          <span class="dia">${esc(fechaLarga(f.dia_previsto))}</span>
+        </div>
+        <button class="btn-icono" data-fecha="${i + 1}" aria-label="Fecha siguiente" ${i >= fechas.length - 1 ? 'disabled' : ''}>${ICONO.der}</button>
+      </div>`;
+}
+
 export function aviso(texto, tipo = 'info', ms = 3200) {
   if (!zonaToast) {
     zonaToast = document.createElement('div');

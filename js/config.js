@@ -6,10 +6,10 @@ export const SUPABASE_URL = 'https://mncemnlhtgvtubtkvivd.supabase.co';
 export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1uY2VtbmxodGd2dHVidGt2aXZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwNTk5NzIsImV4cCI6MjA3NjYzNTk3Mn0.CSwnyynuvRGdAusGLYCA0f_ws8LRoYiG9pe4e5n6dpA';
 
 // Versión de la app pública: subir junto con CACHE_VERSION de /sw.js, siempre en el mismo cambio.
-export const VERSION = '1.2.1';
+export const VERSION = '1.2.2';
 
 // Versión del panel: subir junto con CACHE_VERSION de /admin/sw.js, siempre en el mismo cambio.
-export const ADMIN_VERSION = '1.2.1';
+export const ADMIN_VERSION = '1.3.0';
 
 // Dirección pública que aparece en las placas.
 export const SITIO = 'cdmfutbolmayor.github.io';

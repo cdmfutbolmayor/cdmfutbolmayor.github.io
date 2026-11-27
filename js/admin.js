@@ -9,9 +9,12 @@ import {
 import {
   armarFixture, armarPlayoff, moverFecha, puedeRegenerarFixture, itemsDeFecha, estadoSorteo, plantillaFixture, diasDeJuego,
 } from './fixture.js';
-import { esc, plural, fechaLarga, fechaCorta, hora, esFeriadoEspecial, normalizarNombre, ordinal } from './util.js';
+import { esc, plural, fechaLarga, fechaCorta, hora, esFeriadoEspecial, normalizarNombre, ordinal, parseISO } from './util.js';
 import { protegerSalida } from './salida.js';
-import { ICONO, escudo, mapaEquipos, nombreLado, aviso, dialogo, confirmar, hayPenales } from './ui.js';
+import {
+  ICONO, escudo, mapaEquipos, nombreLado, aviso, dialogo, confirmar, hayPenales, lineaPartido, extrasPartido, filaActividad,
+  libresHTML, selectorFecha,
+} from './ui.js';
 import {
   placaPartido, placaFecha, placaTabla, placaGoleadores, placaProxima, placaPlayoff, archivoDePlaca, compartirArchivo, TIPOS_PLACA,
 } from './placas.js';
@@ -138,9 +141,10 @@ function esqueleto() {
   app.innerHTML = `
     <header class="cabecera"><div id="cab"></div>
       <div class="cab-derecha">
-        <span id="conexion" class="conexion"></span>
+        <span class="cab-fila"><span id="conexion" class="conexion"></span><span id="rol" class="etiqueta-rol" hidden></span></span>
         <a class="ver-web" href="../" target="_blank" rel="noopener">${ICONO.enlace}Ver la web pública</a>
       </div>
+      <div id="cab-fecha" class="cab-fecha" hidden></div>
     </header>
     ${MODO === 'demo' ? '<div class="banda prueba">Modo de prueba: los datos quedan guardados solo en este navegador.</div>' : ''}
     <main class="contenido" id="contenido"></main>
@@ -171,7 +175,22 @@ function pintarCabecera() {
   }
   const cab = document.getElementById('cab');
   if (!cab) return;
-  cab.innerHTML = `<div class="titulo">${esc(titulos[estado.vista])}</div><div class="subtitulo">${esc(sub)}</div>`;
+  const lista = estado.vista === 'resultados' && !estado.partido;
+  const fechaLista = lista ? fechaResultados() : null;
+  if (lista) {
+    const quien = estado.yo?.nombre || estado.yo?.email || '';
+    cab.innerHTML = `<div class="marca"><img class="logo" src="../assets/logo-mitre-75.jpg" alt="Escudo C.D. Mitre" width="36" height="44">
+      <div><div class="titulo">${esc(c.nombre || 'Nocturno Comercial')}</div><div class="subtitulo">Panel${quien ? ` · ${esc(quien)}` : ''}</div></div></div>`;
+  } else {
+    cab.innerHTML = `<div class="titulo">${esc(titulos[estado.vista])}</div><div class="subtitulo">${esc(sub)}</div>`;
+  }
+  const rol = document.getElementById('rol');
+  rol.hidden = !lista;
+  cab.closest('.cabecera').classList.toggle('lista', lista);
+  rol.textContent = soyAdmin() ? 'ADMIN' : 'CARGA';
+  const cf = document.getElementById('cab-fecha');
+  cf.hidden = !fechaLista;
+  cf.innerHTML = fechaLista ? selectorFecha(D(), fechaLista) : '';
   const cx = document.getElementById('conexion');
   cx.className = `conexion ${estado.conectado ? 'ok' : 'no'}`;
   cx.textContent = estado.conectado ? 'Conectado' : 'Sin conexión';
@@ -241,19 +260,15 @@ function vistaResultados() {
       : `<div class="tarjeta pad"><p style="margin:0">Todavía no hay fixture armado.</p></div>${bloqueCuenta()}`;
   }
   const eqs = mapaEquipos(D());
-  const ps = itemsDeFecha(D(), f).filter((x) => x.tipo === 'partido');
-  const filas = ps.map((p) => `
-    <button class="fila fila-btn" data-accion="abrir-partido" data-id="${p.id}">
-      <span class="txt"><span style="font-weight:600">${esc(textoPartido(p, eqs))}</span>${p.ronda !== 'todos' ? `<span class="sub">${esc(nombreCruce(p.ronda, p.llave))}</span>` : ''}${p.estado === 'en_juego' && nombreDe(p.actualizado_por) ? `<span class="sub">Lo está cargando ${esc(nombreDe(p.actualizado_por))}</span>` : ''}</span>
-      ${chipEstado(p, f)}
-    </button>`).join('');
+  const items = itemsDeFecha(D(), f);
+  const filas = items.map((it) => (it.tipo === 'actividad' ? filaActividad(it) : filaResultado(it, f, eqs))).join('');
   return `
-    ${chipsFechas(f, 'fecha-res')}
-    <section class="tarjeta">
-      <div class="tarjeta-cab" style="font-size:13px">${esc(tituloFecha(f))} · ${esc(fechaLarga(f.dia_previsto))}</div>
+    ${tarjetaDestacada(items.filter((x) => x.tipo === 'partido'), eqs)}
+    <section class="tarjeta" aria-label="Partidos de la fecha">
+      <div class="tarjeta-cab seccion">Todos los partidos de la fecha</div>
       ${filas || '<div class="vacio">Esta fecha no tiene partidos.</div>'}
+      ${libresHTML(D(), f)}
     </section>
-    <p class="ayuda" style="text-align:center">Tocá un partido para cargar el resultado.</p>
     <section class="tarjeta pad">
       <span style="font-weight:700">Placas para WhatsApp</span>
       <div class="placas">
@@ -261,6 +276,91 @@ function vistaResultados() {
       </div>
     </section>
     ${soyAdmin() ? '' : bloqueCuenta()}`;
+}
+
+const LAPIZ = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+const PLAY = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+
+/** "Cargó Juan · 2 goles · 1 roja" (lo que esté en cero no se muestra). */
+function resumenCarga(p) {
+  if (p.estado !== 'en_juego' && p.estado !== 'finalizado') return '';
+  const nombre = nombreDe(p.actualizado_por);
+  const goles = D().goles.filter((g) => g.partido_id === p.id).length;
+  const tarj = (D().tarjetas || []).filter((t) => t.partido_id === p.id);
+  const am = tarj.filter((t) => t.tipo === 'amarilla').length;
+  const ro = tarj.filter((t) => t.tipo === 'roja').length;
+  const partes = [];
+  if (nombre) partes.push(p.estado === 'en_juego' ? `Lo está cargando ${nombre}` : `Cargó ${nombre}`);
+  if (goles) partes.push(plural(goles, 'gol', 'goles'));
+  if (am) partes.push(plural(am, 'amarilla', 'amarillas'));
+  if (ro) partes.push(plural(ro, 'roja', 'rojas'));
+  return partes.join(' · ');
+}
+
+/** Una fila de la lista: igual que en la web, más qué se cargó y qué se puede hacer. */
+function filaResultado(p, f, eqs) {
+  const definido = p.local_id && p.visitante_id;
+  let accion = '';
+  if (p.estado === 'en_juego') accion = '<span class="pastilla vivo">Seguir cargando ›</span>';
+  else if (p.estado === 'finalizado') accion = soyAdmin() ? `<span class="accion-txt">${LAPIZ}Corregir</span>` : '<span class="accion-txt">Ver ›</span>';
+  else if (p.estado === 'suspendido') accion = '<span class="accion-txt">Ver ›</span>';
+  else if (definido) accion = '<span class="pastilla">Cargar resultado ›</span>';
+  const resumen = resumenCarga(p);
+  return `
+    <button class="partido partido-btn" data-accion="abrir-partido" data-id="${p.id}">
+      ${lineaPartido(p, f, eqs)}
+      ${resumen || accion ? `<span class="p-carga"><span class="resumen">${esc(resumen)}</span>${accion}</span>` : ''}
+      ${extrasPartido(p, f)}
+    </button>`;
+}
+
+/** "Hoy", "Mañana" o el día. */
+function cuandoEs(iso) {
+  if (!iso) return '';
+  const d = parseISO(iso);
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const dias = Math.round((d - hoy) / 86400000);
+  if (dias === 0) return 'Hoy';
+  if (dias === 1) return 'Mañana';
+  return fechaLarga(iso);
+}
+
+/** Arriba de todo: el partido en juego, o el próximo a jugar. Si la fecha terminó, nada. */
+function tarjetaDestacada(ps, eqs) {
+  const vivo = ps.find((p) => p.estado === 'en_juego');
+  const proximo = vivo ? null : ps
+    .filter((p) => p.estado === 'programado' && p.local_id && p.visitante_id)
+    .sort((x, y) => String(x.dia).localeCompare(String(y.dia)) || String(x.hora).localeCompare(String(y.hora)))[0];
+  const p = vivo || proximo;
+  if (!p) return '';
+  const lado = (l) => {
+    const eq = eqs.get(p[`${l}_id`]);
+    return `<div class="d-lado">${escudo(eq, 40)}<span class="n">${esc(nombreLado(p, l, eqs))}</span></div>`;
+  };
+  if (vivo) {
+    const quien = nombreDe(p.actualizado_por);
+    return `
+    <section class="tarjeta destacada" aria-label="Partido en juego">
+      <div class="d-titulo vivo"><span class="punto" aria-hidden="true"></span>EN JUEGO</div>
+      <div class="d-cuerpo">
+        ${lado('local')}
+        <div class="d-centro"><span class="d-marcador" aria-label="${p.goles_local ?? 0} a ${p.goles_visitante ?? 0}">${p.goles_local ?? 0} – ${p.goles_visitante ?? 0}</span>
+          ${quien ? `<span class="d-sub">Lo está cargando ${esc(quien)}</span>` : ''}</div>
+        ${lado('visitante')}
+      </div>
+      <div class="d-pie"><button class="btn grande ancho vivo" data-accion="abrir-partido" data-id="${p.id}">Seguir cargando</button></div>
+    </section>`;
+  }
+  return `
+    <section class="tarjeta destacada" aria-label="Próximo partido">
+      <div class="d-titulo">PRÓXIMO PARTIDO</div>
+      <div class="d-cuerpo">
+        ${lado('local')}
+        <div class="d-centro"><span class="d-hora">${esc(hora(p.hora))}</span><span class="d-sub">${esc(cuandoEs(p.dia))}</span></div>
+        ${lado('visitante')}
+      </div>
+      <div class="d-pie"><button class="btn grande ancho primario" data-accion="empezar-partido" data-id="${p.id}">${PLAY}Empezar partido</button></div>
+    </section>`;
 }
 
 /** Para el cargador (que no tiene menú): quién está conectado y cerrar sesión. */
@@ -1160,7 +1260,6 @@ function placaPorTipo(tipo) {
 
 const acciones = {
   // Resultados
-  'fecha-res': (b) => { estado.fechaRes = b.dataset.id; estado.partido = null; render(); },
   'abrir-partido': (b) => {
     estado.partido = b.dataset.id;
     estado.sugerirPlantel = null;
@@ -1169,6 +1268,11 @@ const acciones = {
     estado.tarjeta = { equipo: null, nombre: '', minuto: '', tipo: 'amarilla' };
     render();
     scrollTo(0, 0);
+  },
+  // Desde la tarjeta "Próximo partido": lo pasa a en juego y abre su carga
+  'empezar-partido': async (b) => {
+    acciones['abrir-partido'](b);
+    await cambiarEstado('en_juego');
   },
   'cerrar-partido': () => { estado.partido = null; estado.directo = null; render(); },
   'carga-directa': () => { estado.directo = estado.partido; render(); },
@@ -1400,6 +1504,12 @@ document.addEventListener('click', (e) => {
     render();
     scrollTo(0, 0);
     if (estado.vista === 'usuarios') cargarUsuarios();
+    return;
+  }
+  const fz = e.target.closest('[data-fecha]');
+  if (fz && !fz.disabled) {
+    const x = fechasOrdenadas(D())[Number(fz.dataset.fecha)];
+    if (x) { estado.fechaRes = x.id; estado.partido = null; render(); }
     return;
   }
   const b = e.target.closest('[data-accion]');

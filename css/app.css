@@ -122,7 +122,7 @@ img.escudo { border: 1px solid var(--borde); }
 .p-goles span { flex: 1; min-width: 0; }
 .p-goles .l { text-align: right; }
 .etiqueta {
-  display: inline-block; margin-top: 6px; margin-left: 56px; font-size: 12px; border-radius: 4px; padding: 4px 8px;
+  display: block; width: fit-content; margin-top: 6px; margin-left: 56px; font-size: 12px; border-radius: 4px; padding: 4px 8px;
 }
 .etiqueta.reprog { color: var(--reprog); background: var(--reprog-fondo); }
 .etiqueta.susp { color: var(--sec2); background: var(--fondo); }
@@ -337,3 +337,51 @@ img.escudo { border: 1px solid var(--borde); }
 .ver-web { color: #fff; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; padding: 10px 4px; min-height: 44px; white-space: nowrap; }
 .ver-web svg { width: 16px; height: 16px; }
 .cab-derecha { display: flex; flex-direction: column; align-items: flex-end; gap: 0; }
+
+/* ── Panel · Resultados (lista de la fecha) ─────────────── */
+.admin .cabecera { flex-wrap: wrap; }
+.admin .cabecera .marca { gap: 10px; }
+.admin .cabecera .logo { width: 36px; height: 44px; border-radius: 5px; }
+.cab-fila { display: inline-flex; align-items: center; gap: 8px; }
+.etiqueta-rol { font-size: 11px; font-weight: 700; letter-spacing: .5px; background: #f5b800; color: #1a1a1a; border-radius: 4px; padding: 4px 7px; }
+.cab-fecha { flex: 1 0 100%; border-top: 1px solid #333; margin: 0 -16px -12px; padding: 0 4px; }
+.cab-fecha .selector-fecha { background: transparent; }
+.cab-fecha .selector-fecha .dia { color: #bdbdbd; }
+.cab-fecha .btn-icono { color: #fff; }
+.tarjeta-cab.seccion { font-size: 12px; }
+.partido-btn { display: block; width: 100%; border: 0; border-top: 1px solid var(--borde); background: #fff; text-align: left; color: inherit; font: inherit; cursor: pointer; min-height: 52px; }
+.tarjeta-cab + .partido-btn { border-top: 0; }
+.partido-btn:hover { background: #f7f9fc; }
+.partido-btn .linea { display: flex; }
+.p-carga { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; padding-left: 56px; min-height: 26px; }
+.p-carga .resumen { font-size: 11px; color: var(--sec); min-width: 0; }
+.pastilla { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: #fff; background: var(--azul); border-radius: 6px; padding: 5px 10px; white-space: nowrap; }
+.pastilla.vivo { background: var(--vivo); }
+.accion-txt { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--azul); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.destacada { border: 2px solid #f5b800; }
+.d-titulo { background: #fff6d6; color: #5b4a00; padding: 8px 12px; font-size: 12px; font-weight: 700; letter-spacing: .3px; display: flex; align-items: center; gap: 6px; }
+.d-titulo.vivo { background: var(--vivo-suave); color: #b71c1c; }
+.d-titulo .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--vivo); }
+.d-cuerpo { display: flex; align-items: center; gap: 8px; padding: 14px 12px 10px; }
+.d-lado { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.d-lado .n { font-weight: 600; text-align: center; overflow-wrap: anywhere; }
+.d-centro { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; max-width: 40%; }
+.d-hora { font-family: var(--titulos); font-weight: 700; font-size: 24px; }
+.d-marcador { font-family: var(--titulos); font-weight: 700; font-size: 40px; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.d-sub { font-size: 12px; color: var(--sec); }
+.d-pie { padding: 0 12px 12px; }
+.btn.vivo { border: 0; background: var(--vivo); color: #fff; }
+.btn.grande svg { flex: 0 0 auto; }
+.admin .cabecera #cab { flex: 1 1 0; min-width: 0; }
+.admin .cabecera .marca > div { min-width: 0; }
+.admin .cabecera .marca .titulo, .admin .cabecera .marca .subtitulo { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.admin .cab-derecha { flex: 0 0 auto; }
+.admin .cab-fila { flex-direction: row-reverse; }
+/* Lista de Resultados: renglón 1 marca + rol; renglón 2 conexión y "Ver la web pública"; renglón 3 la fecha */
+.admin .cabecera.lista { row-gap: 0; }
+.admin .cabecera.lista .cab-derecha, .admin .cabecera.lista .cab-fila { display: contents; }
+.admin .cabecera.lista #cab { order: 1; flex: 1 1 calc(100% - 90px); }
+.admin .cabecera.lista #rol { order: 2; align-self: center; }
+.admin .cabecera.lista #conexion { order: 3; margin-right: auto; margin-top: 4px; }
+.admin .cabecera.lista .ver-web { order: 4; margin-top: 4px; min-height: 44px; padding: 0 2px; }
+.admin .cabecera.lista .cab-fecha { order: 5; margin-top: 0; }

@@ -3,15 +3,15 @@ import { iniciarDatos } from './datos.js';
 import { MODO } from './db.js';
 import {
   cfg, calcularTabla, calcularGoleadores, calcularValla, leyendaZonas, textoDesempate, fechasOrdenadas, fechaEnCurso,
-  esReprogramado, libresDeFecha, armarCruces, hayPlayoff, primeraFaseTerminada, podio, ganadorPartido, NOMBRE_RONDA,
+  esReprogramado, armarCruces, hayPlayoff, primeraFaseTerminada, podio, ganadorPartido, NOMBRE_RONDA,
   nombreCruce, tieneResultado,
 } from './calculos.js';
 import { itemsDeFecha } from './fixture.js';
 import { esc, plural, fechaLarga, hora } from './util.js';
 import { protegerSalida } from './salida.js';
 import {
-  ICONO, escudo, mapaEquipos, nombreLado, estadoPartido, textoReprogramado, golesPorLado, hayPenales, etiquetaCruce,
-  tarjetasPorLado, icoTarjeta, partidoVisible,
+  escudo, mapaEquipos, nombreLado, hayPenales, partidoVisible, icoTarjeta,
+  filaPartido, filaActividad, selectorFecha, libresHTML,
 } from './ui.js';
 
 const PESTANAS = [
@@ -77,88 +77,19 @@ function render() {
 
 // ── Partidos ───────────────────────────────────────────────
 
-function marcadorHTML(p) {
-  const jugado = tieneResultado(p) && p.estado !== 'programado';
-  const vivo = p.estado === 'en_juego';
-  const clase = vivo ? 'caja vivo' : jugado ? 'caja' : 'caja vacia';
-  const pen = hayPenales(p);
-  const g = (lado) => {
-    if (!jugado) return '-';
-    const n = p[`goles_${lado}`];
-    return pen ? `${n} <span class="pen" style="color:inherit;opacity:.85">(${p[`penales_${lado}`]})</span>` : `${n}`;
-  };
-  const etiqueta = jugado
-    ? `${p.goles_local} a ${p.goles_visitante}${pen ? `, penales ${p.penales_local} a ${p.penales_visitante}` : ''}`
-    : 'sin resultado';
-  return `<div class="p-marcador" aria-label="${esc(etiqueta)}"><span class="${clase}" aria-hidden="true">${g('local')}</span><span class="${clase}" aria-hidden="true">${g('visitante')}</span></div>`;
-}
-
-export function filaPartido(D, p, fecha, eqs) {
-  const st = estadoPartido(p, fecha);
-  const r = ganadorPartido(p);
-  const lado = (l) => {
-    const eq = eqs.get(p[`${l}_id`]);
-    const gana = r && r.ganador === p[`${l}_id`];
-    const nombre = `<span class="nombre ${gana ? 'gana' : ''} ${eq ? '' : 'origen'}">${esc(nombreLado(p, l, eqs))}</span>`;
-    const esc_ = escudo(eq, 20);
-    return `<div class="p-lado ${l}">${l === 'local' ? nombre + esc_ : esc_ + nombre}</div>`;
-  };
-  // Lo cargado se muestra solo si el partido está en juego o terminado (la carga directa no se ve hasta guardarla)
-  const visible = partidoVisible(p);
-  const goles = visible ? golesPorLado(D, p) : { local: '', visitante: '' };
-  const tarj = visible ? tarjetasPorLado(D, p) : { local: [], visitante: [] };
-  const ladoTarjetas = (lista) => lista.map((t) => `<span class="t">${icoTarjeta(t.tipo)}${esc(t.nombre)}</span>`).join('');
-  const extras = [];
-  if (p.estado === 'suspendido') extras.push('<div class="etiqueta susp">Suspendido</div>');
-  else if (esReprogramado(p, fecha) && p.estado !== 'finalizado') extras.push(`<div class="etiqueta reprog">${esc(textoReprogramado(p))}</div>`);
-  const cruce = etiquetaCruce(p);
-  return `
-    <div class="partido">
-      <div class="linea">
-        <span class="p-estado ${st.clase}">${esc(st.texto)}</span>
-        ${lado('local')}
-        ${marcadorHTML(p)}
-        ${lado('visitante')}
-      </div>
-      ${goles.local || goles.visitante ? `<div class="p-goles"><span class="l">${esc(goles.local)}</span><span class="v">${esc(goles.visitante)}</span></div>` : ''}
-      ${tarj.local.length || tarj.visitante.length ? `<div class="p-tarjetas"><span class="l">${ladoTarjetas(tarj.local)}</span><span class="v">${ladoTarjetas(tarj.visitante)}</span></div>` : ''}
-      ${cruce && fecha && fecha.fase === 'playoff' && cruce !== fecha.nombre ? `<div class="etiqueta cruce">${esc(cruce)}</div>` : ''}
-      ${extras.join('')}
-    </div>`;
-}
-
-function filaActividad(a) {
-  return `<div class="actividad"><span class="p-estado">${esc(hora(a.hora))}</span><span class="txt">${esc(a.titulo)}</span></div>`;
-}
-
-function tituloFecha(D, f) {
-  if (f.fase === 'playoff') return f.nombre || `Fecha ${f.numero}`;
-  const total = (D.fechas || []).filter((x) => x.fase === 'todos').length;
-  return `Fecha ${f.numero} de ${total}`;
-}
-
 function vistaPartidos(D) {
   const fechas = fechasOrdenadas(D);
   if (!fechas.length) return '<div class="tarjeta"><div class="vacio">Todavía no se armó el fixture. Muy pronto vas a ver acá los partidos.</div></div>';
   let f = fechas.find((x) => x.id === estado.fechaId);
   if (!f) f = fechaEnCurso(D);
-  const i = fechas.indexOf(f);
   const eqs = mapaEquipos(D);
   const items = itemsDeFecha(D, f);
   const filas = items.map((it) => (it.tipo === 'actividad' ? filaActividad(it) : filaPartido(D, it, f, eqs))).join('');
-  const libres = libresDeFecha(D, f).map((e) => `<div class="libre">Libre: ${esc(e.nombre)}</div>`).join('');
   return `
     <section class="tarjeta" aria-label="Partidos">
-      <div class="selector-fecha">
-        <button class="btn-icono" data-fecha="${i - 1}" aria-label="Fecha anterior" ${i <= 0 ? 'disabled' : ''}>${ICONO.izq}</button>
-        <div class="centro">
-          <span class="nombre">${esc(tituloFecha(D, f))}</span>
-          <span class="dia">${esc(fechaLarga(f.dia_previsto))}</span>
-        </div>
-        <button class="btn-icono" data-fecha="${i + 1}" aria-label="Fecha siguiente" ${i >= fechas.length - 1 ? 'disabled' : ''}>${ICONO.der}</button>
-      </div>
+      ${selectorFecha(D, f)}
       ${filas || '<div class="vacio">Esta fecha todavía no tiene partidos.</div>'}
-      ${libres}
+      ${libresHTML(D, f)}
     </section>
     <p class="pie">Los resultados se actualizan solos.</p>`;
 }
